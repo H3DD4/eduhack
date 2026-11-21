@@ -1,0 +1,35 @@
+# secrets — never commit
+.env
+.env.*
+!.env.example
+api/.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+api/thinkfirst-dev.db
+api/*.db
+api/.storage/
+.storage/
+
+# node
+node_modules/
+web/.next/
+web/out/
+web/test-results/
+web/playwright-report/
+web/blob-report/
+*.tsbuildinfo
+next-env.d.ts
+
+# misc
+.DS_Store
+Thumbs.db
+api/.storage-e2e/
+api/e2e.db
+web/e2e/.fixtures/
