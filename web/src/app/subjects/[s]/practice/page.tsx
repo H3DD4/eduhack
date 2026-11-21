@@ -1,0 +1,17 @@
+"use client";
+// W02 — out of scope for this run: truthful scope explanation, not a fake screen.
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { AppShell } from "@/components/AppShell";
+import { SubjectShell } from "@/components/SubjectShell";
+import { ScopeNotice } from "@/components/ui";
+
+export default function Page() {
+  const p = useParams<{ s?: string }>();
+  const body = (
+    <ScopeNotice id="W02" title="Practice selection" milestone="M3 (practice pool and due reviews). Start practice from a concept in the Roadmap meanwhile">
+      {p.s ? <Link className="btn-primary mt-4" href={`/subjects/${p.s}/roadmap`}>Open the roadmap</Link> : <Link className="btn-primary mt-4" href="/today">Go to Today</Link>}
+    </ScopeNotice>
+  );
+  return p.s ? <SubjectShell subjectId={p.s}>{body}</SubjectShell> : <AppShell>{body}</AppShell>;
+}
