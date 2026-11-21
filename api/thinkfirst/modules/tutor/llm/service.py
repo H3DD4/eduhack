@@ -88,7 +88,7 @@ def active_provider() -> str:
     s = get_settings()
     if s.llm_provider in ("demo", "anthropic", "gemini", "groq", "ollama"):
         return s.llm_provider if _has_key(s.llm_provider) else "demo"
-    for p in ("gemini", "ollama", "anthropic", "groq"):
+    for p in ("ollama", "anthropic", "groq", "gemini"):
         if _has_key(p):
             return p
     return "demo"
@@ -99,7 +99,7 @@ def provider_chain() -> list[str]:
     primary = active_provider()
     if primary == "demo" or not get_settings().llm_fallback:
         return [primary]
-    chain = [primary] + [p for p in ("gemini", "ollama", "groq", "anthropic") if p != primary and _has_key(p)]
+    chain = [primary] + [p for p in ("ollama", "groq", "gemini", "anthropic") if p != primary and _has_key(p)]
     healthy = [p for p in chain if _cooldown_until.get(p, 0) <= time.time()]
     return healthy or chain  # if every provider is cooling down, still try them in order
 
@@ -153,31 +153,52 @@ def _strip_json_fence(raw: str) -> str:
 
 def _call_gemini(template: PromptTemplate, user_text: str) -> tuple[dict, int, int]:
     s = get_settings()
-    model_id = s.gemini_model[7:] if s.gemini_model.startswith("models/") else s.gemini_model
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent"
+    primary = s.gemini_model[7:] if s.gemini_model.startswith("models/") else s.gemini_model
+    models = [primary]
+    if s.llm_fallback:
+        for fb in ("gemini-2.5-flash", "gemini-flash-latest"):
+            if fb not in models:
+                models.append(fb)
     body = {
         "systemInstruction": {"parts": [{"text": template.system}]},
         "contents": [{"role": "user", "parts": [{"text": user_text}]}],
         "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
     }
-    r = httpx.post(
-        url,
-        params={"key": s.gemini_api_key or ""},
-        json=body,
-        headers={"x-goog-api-key": s.gemini_api_key or ""},
-        timeout=60,
-    )
-    if r.status_code == 429:
-        raise _ProviderError("RATE_LIMITED")
-    if r.status_code >= 400:
-        raise _ProviderError(f"HTTP_{r.status_code}")
-    data = r.json()
-    cands = data.get("candidates") or []
-    if not cands or cands[0].get("finishReason") in ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST"):
-        raise _Refused()
-    text = "".join(p.get("text", "") for p in cands[0].get("content", {}).get("parts", []) if not p.get("thought"))
-    usage = data.get("usageMetadata", {})
-    return json.loads(_strip_json_fence(text)), int(usage.get("promptTokenCount", 0)), int(usage.get("candidatesTokenCount", 0))
+    last_err: Exception | None = None
+    for idx, model_id in enumerate(models):
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent"
+        try:
+            r = httpx.post(
+                url,
+                params={"key": s.gemini_api_key or ""},
+                json=body,
+                headers={"x-goog-api-key": s.gemini_api_key or ""},
+                timeout=60 if idx == 0 else 25,
+            )
+        except httpx.TimeoutException as exc:
+            last_err = _ProviderError("TIMEOUT")
+            if idx + 1 < len(models):
+                continue
+            raise last_err from exc
+        if r.status_code in (429, 503) and idx + 1 < len(models):
+            last_err = _ProviderError("RATE_LIMITED" if r.status_code == 429 else "HTTP_503")
+            continue
+        if r.status_code == 429:
+            raise _ProviderError("RATE_LIMITED")
+        if r.status_code >= 400:
+            raise _ProviderError(f"HTTP_{r.status_code}")
+        data = r.json()
+        cands = data.get("candidates") or []
+        if not cands or cands[0].get("finishReason") in ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST"):
+            raise _Refused()
+        text = "".join(p.get("text", "") for p in cands[0].get("content", {}).get("parts", []) if not p.get("thought"))
+        usage = data.get("usageMetadata", {})
+        return (
+            json.loads(_strip_json_fence(text)),
+            int(usage.get("promptTokenCount", 0)),
+            int(usage.get("candidatesTokenCount", 0)),
+        )
+    raise last_err or _ProviderError("HTTP_503")
 
 
 def _call_groq(template: PromptTemplate, user_text: str) -> tuple[dict, int, int]:
@@ -273,12 +294,12 @@ def run(db: Session, prompt_id: str, variables: dict[str, Any], *, owner_id: str
             return result
         if result.status == "error" and p != "demo":
             _cooldown_until[p] = time.time() + COOLDOWN_S
-    # If every real provider failed with HTTP_402 (quota/credits exhausted) in demo_mode, fall back to the
-    # explicitly labeled demo adapter (simulated=True) so local testing continues uninterrupted.
+    # If every real provider failed with quota/capacity errors (HTTP_402, HTTP_503, RATE_LIMITED, TIMEOUT)
+    # in demo_mode, fall back to the explicitly labeled demo adapter (simulated=True) so local testing continues uninterrupted.
     if (
         result is not None
         and result.status == "error"
-        and result.error_code == "HTTP_402"
+        and result.error_code in ("HTTP_402", "HTTP_503", "RATE_LIMITED", "TIMEOUT")
         and not provider
         and get_settings().demo_mode
         and prompt_id in _demo_adapters

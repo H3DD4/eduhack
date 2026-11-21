@@ -64,7 +64,7 @@ def test_signal_catalog_covers_each_tier_used_by_redaction():
     assert {s.tier for s in SIGNAL_CATALOG} == {Tier.ESSENTIAL, Tier.LEARNING_BEHAVIOR}
 
 
-def O(**kw):  # noqa: N802
+def O(**kw):  # noqa: N802, E743
     return ind.Observation(**kw)
 
 

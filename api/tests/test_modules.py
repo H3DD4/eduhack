@@ -38,8 +38,12 @@ def test_recurring_misconception_suggests_optional_foundation(student):
         _, t = _practice(student, sid, cid)
         student.post(f"/api/tasks/{t['id']}/submit", json={"answer": "2x + 3", "expected_revision": t["revision"], "idempotency_key": f"r{i}"})
     road2 = student.get(f"/api/subjects/{sid}/roadmap").json()
-    assert road2["suggestion"]["kind"] == "side_quest"
-    assert "Order of operations" in road2["suggestion"]["reason"]
+    # learner engine: fix the active misconception first, then the optional foundation as a diagnostic side quest
+    assert road2["suggestion"]["kind"] == "remediate" and "still active" in road2["suggestion"]["reason"]
+    state = student.get(f"/api/subjects/{sid}/learner-state").json()
+    order = [(c["concept_id"], c["kind"]) for c in state["recommendation"]["next_concepts"]]
+    f1 = next(cid for cid, t in state["titles"].items() if t == "Order of operations")
+    assert (f1, "diagnostic_check") in order
 
 
 def test_diagnostic_baseline_check_and_skip(student):
@@ -130,3 +134,55 @@ def test_failed_topic_job_moves_subject_out_of_processing(student, monkeypatch):
     setup = student.get(f"/api/subjects/{sid}/setup").json()
     assert setup["topic_job"]["status"] == "failed" and setup["subject"]["status"] == "needs_attention"
     _ = ingestion
+
+
+def test_learner_engine_end_to_end_in_the_app(student):
+    """App events -> memory rows -> engine state; wrong answer -> logged help suggestion -> rewarded by the next
+    fresh unaided answer -> shared bandit aggregate (no student id)."""
+    from thinkfirst.core import db as dbmod
+    from thinkfirst.modules.adaptation.models import BanditStat
+
+    sid, road = ready_subject(student)
+    cid = concept_by_title(road, "distributive")["id"]
+    _, t = _practice(student, sid, cid)
+    wrong = student.post(f"/api/tasks/{t['id']}/submit", json={"answer": "2x + 3", "expected_revision": t["revision"],
+                                                              "idempotency_key": "w"}).json()
+    sug = wrong["suggested_help"]
+    assert sug["action"] in ("targeted_hint", "worked_example", "prerequisite_refresher", "guided_retry", "refutation")
+    assert sug["context_key"].startswith("distribution_first_term_only|") and 0 < sug["propensity"] <= 1
+    st = student.get(f"/api/subjects/{sid}/learner-state").json()["state"]["concepts"][cid]
+    assert st["scored_events"] == 1 and st["level"] == 1
+    assert st["misconceptions"][0]["id"] == "distribution_first_term_only" and st["misconceptions"][0]["status"] == "active"
+    # next fresh unaided answer on the concept rewards the suggestion. The engine never repeats the seen question:
+    # with the mistake active it picks a TRIGGER question (one where the same slip would show again).
+    _, t2 = _practice(student, sid, cid)
+    assert t2["prompt"] != t["prompt"] and t2["context"]["is_trigger"] is True
+    assert "distribution_first_term_only" in t2["context"]["triggers"]
+    student.post(f"/api/tasks/{t2['id']}/submit", json={"answer": _correct(t2["prompt"]), "expected_revision": t2["revision"],
+                                                        "idempotency_key": "ok"})
+    with dbmod.session_factory()() as db:
+        stats = db.query(BanditStat).all()
+        assert len(stats) == 1 and stats[0].successes == 1.0 and stats[0].action == sug["action"]
+        assert not hasattr(stats[0], "owner_id")  # aggregates only
+    st2 = student.get(f"/api/subjects/{sid}/learner-state").json()["state"]["concepts"][cid]
+    assert st2["p_mastery"] > st["p_mastery"] and st2["unaided_successes"] == 1
+
+
+def _correct(prompt: str) -> str:
+    import sympy
+
+    from thinkfirst.modules.diagnostic.grading.mathcheck import parse
+
+    return str(sympy.expand(parse(prompt.removeprefix("Expand ").rstrip(".")))).replace("**", "^")
+
+
+def test_stateless_engine_api(student):
+    schema = student.get("/api/engine/schema").json()
+    assert schema["engine_version"] == "1.0" and "FoldRequest" in schema["inputs"]
+    body = {"student_id": "x", "concepts": [{"concept_id": "a"}],
+            "events": [{"event_id": "1", "student_id": "x", "concept_id": "a", "kind": "attempt",
+                        "ts": "2026-01-01T10:00:00Z", "outcome": "correct"}]}
+    out = student.post("/api/engine/fold", json=body).json()
+    assert out["concepts"]["a"]["p_mastery"] == 0.49
+    bad = student.post("/api/engine/fold", json={"student_id": "x"})
+    assert bad.status_code == 422

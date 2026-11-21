@@ -127,12 +127,13 @@ REGISTRY: dict[str, PromptTemplate] = {
     ),
     "generate_concept_pack": PromptTemplate(
         id="generate_concept_pack",
-        version="v1",
+        version="v2",
         system=(
             "You write a compact, accurate study pack for ONE concept for a university student. ThinkFirst makes the "
             "student think: lessons are short, practice questions have a single checkable answer, and hints climb "
             "gradually without giving the answer before the last level. Produce: a lesson (summary <= 90 words, 3-4 key "
-            "points, one worked example on a DIFFERENT problem than the practice), 2 practice questions, an explain-back "
+            "points, one worked example on a DIFFERENT problem than the practice), 3 practice questions (one easy, one "
+            "medium, one hard; set difficulty accordingly), an explain-back "
             "prompt, predeclared rubric essentials (short phrases) for correctness, essential_coverage, why_relationships, "
             "example_application and limits (limits may be an empty list if not applicable), one follow-up question per "
             "criterion, and one transfer task that applies the concept in a NEW context with a different problem than the "
@@ -148,8 +149,9 @@ REGISTRY: dict[str, PromptTemplate] = {
                 "required": ["summary", "key_points", "example_problem", "example_steps"]},
             "practice": {"type": "array", "items": {"type": "object", "properties": {
                 "prompt": {"type": "string"}, "answer_kind": {"type": "string", "enum": ["expression", "text"]},
+                "difficulty": {"type": "string", "enum": ["easy", "medium", "hard"]},
                 "expected_answer": {"type": "string"}, "hints": {"type": "array", "items": {"type": "string"}}},
-                "required": ["prompt", "answer_kind", "expected_answer", "hints"]}},
+                "required": ["prompt", "answer_kind", "difficulty", "expected_answer", "hints"]}},
             "explain_prompt": {"type": "string"},
             "essentials": {"type": "object", "properties": {k: {"type": "array", "items": {"type": "string"}} for k in (
                 "correctness", "essential_coverage", "why_relationships", "example_application", "limits")},

@@ -6,6 +6,7 @@ llm_gateway); reactions (evidence) go through events.
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 from datetime import date, timedelta
 
@@ -206,29 +207,43 @@ def _concept(db: Session, s: StudySession):
 
 
 def _create_practice_task(db: Session, s: StudySession, parent: Task | None = None) -> Task | None:
+    """Ask the learner engine which question fits this student now (fresh, trigger for an active mistake,
+    difficulty matched to mastery, never retired), then build the task from the chosen pool entry."""
+    from thinkfirst.modules.adaptation import service as adaptation
+    from thinkfirst.modules.tutor import items
+
     concept = _concept(db, s)
-    used = [t.solution.get("expression", "") for t in tasks_of(db, s) if t.stage == "practice"]
-    items = [i for i in ingestion.items_for(db, s.owner_id, s.subject_id, concept.key)
-             if i.kind == "expand" and i.expression and i.expression not in used]
-    if items and parent is None:
-        it = items[0]
-        expr, origin, detail = it.expression, "unverified-source", f"{ORIGIN_DETAIL['unverified-source']} · page {it.page_no}"
-        prompt = f"Expand {expr}."
-    elif "distribut" in concept.title.lower():
-        expr = generators.expand_variant(used + [i.expression for i in items if i.expression])
-        if expr is None:
-            return None
-        origin, detail, prompt = "ai-generated", ORIGIN_DETAIL["ai-generated"], f"Expand {expr}."
-    else:
-        return _create_pack_practice_task(db, s, concept, parent)
-    hints, sol = generators.expand_hints(expr)
-    t = Task(owner_id=s.owner_id, session_id=s.id, subject_id=s.subject_id, stage="practice", kind="expand",
-             prompt=prompt, origin=origin, origin_detail=detail, task_family_id=f"expand:{concept.key}",
-             context={"objective": concept.objective}, solution={"expression": expr, **sol}, hints=hints,
-             mode="practice", parent_task_id=parent.id if parent else None)
+    pool = items.candidate_pool(db, s, concept)
+    if not pool:
+        return None
+    in_session = [t.context.get("item_key") for t in tasks_of(db, s) if t.stage == "practice" and t.context.get("item_key")]
+    sel = adaptation.select_next_item(db, s.owner_id, s.subject_id, concept.id, [p["spec"] for p in pool], in_session)
+    if not sel["item_id"]:
+        return None
+    entry = next(p for p in pool if p["spec"]["item_id"] == sel["item_id"])
+    b, spec = entry["build"], entry["spec"]
+    t = Task(owner_id=s.owner_id, session_id=s.id, subject_id=s.subject_id, stage="practice", kind=b["kind"],
+             prompt=b["prompt"], origin=b["origin"], origin_detail=b["origin_detail"], task_family_id=b["family"],
+             context={"objective": concept.objective, "item_key": spec["item_id"], "difficulty": spec["difficulty"],
+                      "triggers": spec["triggers"], "is_trigger": sel["is_trigger"], "selection_reason": sel["reason"]},
+             solution=b["solution"], hints=b["hints"], mode="practice", parent_task_id=parent.id if parent else None)
     db.add(t)
     db.flush()
     return t
+
+
+def next_practice(db: Session, owner_id: str, session_id: str, expected_revision: int) -> StudySession:
+    """'Try a new question': the engine picks a fresh one (a trigger item while a mistake is active)."""
+    s = get_session(db, owner_id, session_id)
+    if s.status != "active" or s.stage != "practice":
+        raise Conflict("New questions are available during practice.", code="NOT_IN_PRACTICE")
+    if expected_revision != s.revision:
+        raise StaleRevision(current_revision=s.revision)
+    cur = current_task(db, s)
+    if _create_practice_task(db, s, parent=cur) is None:
+        raise Conflict("No fresh question is left for this concept right now.", code="NO_MORE_ITEMS")
+    s.revision += 1
+    return s
 
 
 def _pack_content(db: Session, s: StudySession) -> tuple[dict | None, str]:
@@ -238,24 +253,6 @@ def _pack_content(db: Session, s: StudySession) -> tuple[dict | None, str]:
     if pack is None or pack.status != "ready":
         return None, pack.status if pack else "missing"
     return pack.content, pack.label
-
-
-def _create_pack_practice_task(db: Session, s: StudySession, concept, parent: Task | None) -> Task | None:
-    content, label = _pack_content(db, s)
-    if not content:
-        return None
-    used = {t.prompt for t in tasks_of(db, s) if t.stage == "practice"}
-    item = next((p for p in content.get("practice", []) if p["prompt"] not in used), None)
-    if item is None:
-        return None
-    t = Task(owner_id=s.owner_id, session_id=s.id, subject_id=s.subject_id, stage="practice",
-             kind="expression" if item["answer_kind"] == "expression" else "short_answer", prompt=item["prompt"],
-             origin="ai-generated", origin_detail=f"Generated study pack — {label}", task_family_id=f"pack:{concept.key}",
-             context={"objective": concept.objective}, solution={"expected": item["expected_answer"], "steps": item["hints"][-1]},
-             hints=item["hints"], mode="practice", parent_task_id=parent.id if parent else None)
-    db.add(t)
-    db.flush()
-    return t
 
 
 def _create_explanation_task(db: Session, s: StudySession) -> Task:
@@ -412,6 +409,12 @@ def help_step(db: Session, owner_id: str, task_id: str, kind: str, confirm_revea
                    idempotency_key=f"help:{t.id}:{idempotency_key}")
     db.add(ev)
     t.help_level = max(t.help_level, level)
+    s_help = db.get(StudySession, t.session_id)
+    events.publish(db, events.Event(events.HELP_GIVEN, owner_id, {
+        "subject_id": t.subject_id, "concept_id": s_help.concept_id if s_help else None, "task_id": t.id,
+        "help_event_id": ev.id if ev.id else idempotency_key, "step": step, "level": level, "stage": t.stage,
+        "item_key": (t.context or {}).get("item_key"),
+        "hint_key": f"hint:{hashlib.sha1(content.encode()).hexdigest()[:12]}"}))
     fresh = None
     if step == "reveal":
         t.revealed = True
@@ -499,12 +502,36 @@ def _assistance(db: Session, t: Task) -> dict:
             "note": "Completed without in-app help" if t.mode == "independent-transfer" else None}
 
 
+ENGINE_ASSISTANCE = {0: "none", 1: "hint_l1", 2: "hint_l2", 3: "hint_l3", 4: "worked_example", 5: "solution_revealed"}
+
+
+def _engine_fields(db: Session, t: Task, a) -> dict:
+    """Translate a graded attempt into learner-engine terms (assistance level, evidence quality, freshness)."""
+    n_attempts = len(assessment.attempts_for_task(db, t.owner_id, t.id))
+    if t.revealed:
+        assist = "solution_revealed"
+    elif t.mode == "guided-transfer":
+        assist = "guided"
+    elif t.help_level:
+        assist = ENGINE_ASSISTANCE.get(t.help_level, "hint_l3")
+    elif t.corrective_feedback_shown and n_attempts > 1:
+        assist = "hint_l1"  # a retry after corrective feedback is supported practice
+    else:
+        assist = "none"
+    evidence = "symbolic" if a.method == "symbolic" else {"sufficient": "sufficient", "limited": "limited"}.get(
+        a.sufficiency, "needs_verification")
+    code = (a.misconception or {}).get("code")
+    return {"assistance_level": assist, "evidence": evidence, "is_fresh": n_attempts == 1,
+            "item_key": (t.context or {}).get("item_key"),
+            "misconception_id": ("other" if code == "generated" else code) if code else None}
+
+
 def _publish(db: Session, s: StudySession, t: Task, attempt, a, stage: str) -> None:
     events.publish(db, events.Event(events.ASSESSMENT_ACCEPTED, s.owner_id, {
         "subject_id": s.subject_id, "concept_id": s.concept_id, "concept_key": s.concept_key, "session_id": s.id,
         "task_id": t.id, "attempt_id": attempt.id, "assessment_id": a.id, "stage": stage,
         "mode": attempt.mode_at_submit, "outcome": a.outcome, "criteria": a.criteria, "assistance": _assistance(db, t),
-        "origin": t.origin, "method_label": a.method_label, "summary": a.feedback}))
+        "origin": t.origin, "method_label": a.method_label, "summary": a.feedback, **_engine_fields(db, t, a)}))
 
 
 def submit_answer(db: Session, owner_id: str, task_id: str, answer: str, expected_revision: int,
@@ -555,7 +582,16 @@ def submit_answer(db: Session, owner_id: str, task_id: str, answer: str, expecte
 
     diagnostic.diagnose_answer(db, owner_id, subject_id=s.subject_id, concept_id=s.concept_id, task_id=t.id,
                                attempt_id=attempt.id, stage=t.stage, assessment=assessment.assessment_public(a) or {})
-    return {"task": task_public(db, t), "assessment": assessment.assessment_public(a), "replayed": False}
+    suggested = None
+    if t.stage == "practice" and a.outcome in ("not_demonstrated", "partial"):
+        from thinkfirst.modules.adaptation import service as adaptation
+
+        code = (a.misconception or {}).get("code")
+        suggested = adaptation.recommend_action(db, owner_id, subject_id=s.subject_id, concept_id=s.concept_id,
+                                                task_id=t.id, error_class=("other" if code == "generated" else code),
+                                                key=attempt.id)
+    return {"task": task_public(db, t), "assessment": assessment.assessment_public(a), "replayed": False,
+            "suggested_help": suggested}
 
 
 def keep_unscored(db: Session, owner_id: str, task_id: str) -> Task:
@@ -628,7 +664,7 @@ def save_reflection(db: Session, owner_id: str, session_id: str, text: str, skip
 def book_review(db: Session, owner_id: str, session_id: str, due_on: date | None) -> dict:
     s = get_session(db, owner_id, session_id)
     if due_on is None:
-        due_on = _adaptive_review(learner.evidence_for_session(db, owner_id, s.id))[0]
+        due_on = _review_suggestion(db, s)[0]
     rv = learner.book_review(db, owner_id, subject_id=s.subject_id, concept_id=s.concept_id, session_id=s.id, due_on=due_on)
     return learner.review_public(rv) or {}
 
@@ -650,6 +686,14 @@ def _adaptive_review(evs) -> tuple:
     return adaptation.review_interval({e.label for e in evs if e.status != "deleted" and e.outcome in ("demonstrated", "exposure")})
 
 
+def _review_suggestion(db: Session, s: StudySession) -> tuple:
+    """Engine retention model first (needs unaided evidence); otherwise the simple 1/2/4-day rule."""
+    from thinkfirst.modules.adaptation import service as adaptation
+
+    return (adaptation.engine_review_date(db, s.owner_id, s.subject_id, s.concept_id)
+            or _adaptive_review(learner.evidence_for_session(db, s.owner_id, s.id)))
+
+
 def summary(db: Session, owner_id: str, session_id: str) -> dict:
     s = get_session(db, owner_id, session_id)
     evs = learner.evidence_for_session(db, owner_id, s.id)
@@ -669,8 +713,8 @@ def summary(db: Session, owner_id: str, session_id: str) -> dict:
         "retention": "Retention not checked yet — only a later review without help can show it.",
         "reflection": {"text": refl.text, "skipped": refl.skipped} if refl else None,
         "review": learner.review_public(review),
-        "default_review_on": _adaptive_review(evs)[0].isoformat(),
-        "review_reason": _adaptive_review(evs)[1],
+        "default_review_on": _review_suggestion(db, s)[0].isoformat(),
+        "review_reason": _review_suggestion(db, s)[1],
         "parent_session_id": s.parent_session_id,
     }
 

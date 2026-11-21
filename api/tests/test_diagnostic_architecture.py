@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from thinkfirst.core import db as dbmod, events
+from thinkfirst.core import db as dbmod
+from thinkfirst.core import events
 from thinkfirst.core.errors import ValidationFailed
 from thinkfirst.core.storage import LocalStorage, set_storage
 from thinkfirst.data.memory import service as memory

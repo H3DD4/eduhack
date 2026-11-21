@@ -76,6 +76,7 @@ REVIEW_BOOKED = "review.booked"
 DELETION_ACKNOWLEDGED = "deletion.acknowledged"
 MISCONCEPTION_DETECTED = "misconception.detected"
 EXPOSURE_RECORDED = "exposure.recorded"
+HELP_GIVEN = "help.given"  # tutor showed a hint / worked example (feeds memory, engine, hint quality)
 
 # Onboarding -> diagnostic -> first plan (design doc "Architecture up to the Diagnostic", SysBrain ownership).
 USER_CREATED = "user.created"
@@ -104,6 +105,7 @@ EVENT_CONTRACTS: dict[str, EventContract] = {
     DELETION_ACKNOWLEDGED: EventContract(Brain.SESSION),
     MISCONCEPTION_DETECTED: EventContract(Brain.SESSION, (Brain.EVIDENCE, Brain.PLAN)),
     EXPOSURE_RECORDED: EventContract(Brain.SESSION, (Brain.EVIDENCE,)),
+    HELP_GIVEN: EventContract(Brain.SESSION, (Brain.EVIDENCE,)),
     USER_CREATED: EventContract(Brain.CORE),
     AGE_GATED: EventContract(Brain.CORE, (Brain.CORE,)),                      # consent flow
     CONSENT_UPDATED: EventContract(Brain.CORE, (Brain.STUDENT, Brain.EVIDENCE)),

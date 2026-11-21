@@ -71,23 +71,15 @@ if !ERRORLEVEL! NEQ 0 (
 )
 popd
 
-REM 2. Sync branding assets into web\ and thinkfirst-web\
+REM 2. Sync branding assets (branding\ is the source) into the frontend web\
 if exist "%~dp0branding\*.svg" (
     if not exist "%~dp0web\public\brand" mkdir "%~dp0web\public\brand"
     copy /Y "%~dp0branding\*.svg" "%~dp0web\public\brand\" >nul
     copy /Y "%~dp0branding\favicon.svg" "%~dp0web\src\app\icon.svg" >nul
-    if exist "%~dp0thinkfirst-web" (
-        if not exist "%~dp0thinkfirst-web\public\brand" mkdir "%~dp0thinkfirst-web\public\brand"
-        copy /Y "%~dp0branding\*.svg" "%~dp0thinkfirst-web\public\brand\" >nul
-        copy /Y "%~dp0branding\favicon.svg" "%~dp0thinkfirst-web\src\app\icon.svg" >nul
-    )
 )
 
-REM 3. Prepare Next.js frontend (uses web\ which is synced with thinkfirst-web\)
+REM 3. Prepare the Next.js frontend
 set "WEB_DIR=%~dp0web"
-if /I "%~1"=="--thinkfirst-web" (
-    set "WEB_DIR=%~dp0thinkfirst-web"
-)
 
 echo [3/4] Checking Next.js frontend dependencies in !WEB_DIR!...
 pushd "!WEB_DIR!"

@@ -66,6 +66,7 @@ def _clean_practice(items: list) -> list[dict]:
         hints = [str(h) for h in (it.get("hints") or []) if str(h).strip()]
         if prompt and answer and len(hints) >= 3:
             out.append({"prompt": prompt[:800], "answer_kind": it.get("answer_kind") if it.get("answer_kind") in ("expression", "text") else "text",
+                        "difficulty": it.get("difficulty") if it.get("difficulty") in ("easy", "medium", "hard") else "medium",
                         "expected_answer": answer[:400], "hints": (hints + [f"Worked solution: {answer}"])[:5]})
     return out
 

@@ -25,6 +25,17 @@ class LearningEvent(Base, OwnedMixin, TimestampMixin):
     summary: Mapped[str] = mapped_column(Text, default="")
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
     idempotency_key: Mapped[str] = mapped_column(String(200), unique=True)
+    # learner-engine fields (modules/adaptation/engine) — one row == one engine LearningEvent
+    outcome: Mapped[str | None] = mapped_column(String(16), nullable=True)        # correct|partial|incorrect|unscored
+    assistance: Mapped[str] = mapped_column(String(24), default="none")
+    evidence: Mapped[str] = mapped_column(String(24), default="sufficient")
+    is_fresh: Mapped[bool] = mapped_column(Boolean, default=True)
+    misconception_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    misconception_conf: Mapped[float | None] = mapped_column(Float, nullable=True)
+    recommended_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    context_key: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    propensity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reward: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class BehavioralEvent(Base, OwnedMixin, TimestampMixin):

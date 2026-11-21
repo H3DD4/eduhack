@@ -36,12 +36,15 @@ Rules for everyone:
 **Inputs:** an answer + confidence (1–5) + behavioral timings, or a session task. **Outputs:** `answer.graded`, `diagnostic.completed` (initial profile), `items.ready`, `misconception.detected`.
 **Tests:** `tests/test_domain_diagnostic.py`, `tests/test_diagnostic_architecture.py`, `tests/test_policy_unit.py`, `tests/test_modules.py`.
 
-## 2. adaptation — "what next?"
+## 2. adaptation — "what next?" (the learner engine)
 | File | What it does |
 |---|---|
-| `service.py` | `next_action` (Today), `suggest_concept` (side quest on recurring misconception → knowledge frontier from diagnostic → next unapplied level), `_on_profile_ready` (`plan.updated` first study plan), `review_interval` (1/2/4 days with reason), `session_nudge` (reminds you of your own past slip from diagnostic or practice) |
-**Reads:** `data/student_profile` (evidence, `skill_mastery`, `initial_profiles`) and `data/memory` (history, `behavior_indicators`). **Publishes:** `plan.updated`.
-**Tests:** `tests/test_modules.py`, `tests/test_diagnostic_architecture.py`.
+| `engine/` | **Standalone learner engine, JSON in → JSON out**: BKT mastery, FSRS retention, misconception state machine, frontier + Thompson bandit, question selection + question/hint quality, metrics, simulator. Full explanation: `docs/ENGINE.md` |
+| `service.py` | Translates app data ↔ engine JSON (concept specs + memory events → learner state). `suggest_concept`: engine first for urgent steps (remediate → review → foundation check), then the diagnostic's knowledge frontier, then the engine's next concept. Also `next_action` (Today), help suggestion after a wrong answer, bandit rewards, next-question selection, question/hint quality stats, review dates, `_on_profile_ready` (`plan.updated` first study plan), `session_nudge` |
+| `models.py` | `adaptation.bandit_stats`, `item_stats`, `hint_stats`: shared aggregate counts only (no student id) |
+| `router.py` | `GET /subjects/{s}/learner-state`, `GET /quality`, `POST /engine/fold|recommend|evaluate|select|quality`, `GET /engine/schema` |
+**Reads:** `data/memory` (events, history, `behavior_indicators`) and `data/student_profile` (`skill_mastery`, `initial_profiles`). **Publishes:** `plan.updated`.
+**Tests:** `tests/test_engine.py`, `tests/test_engine_items.py`, `tests/test_item_selection_app.py`, `tests/test_modules.py`, `tests/test_diagnostic_architecture.py`.
 
 ## 3. tutor — "teach, help, check"
 | File | What it does |
