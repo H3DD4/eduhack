@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AppShell, useMe } from "@/components/AppShell";
+import { SpeakButton } from "@/components/avatar/AvatarSpeakerContext";
 import { CourseCards } from "@/components/CourseCards";
 import { Mark } from "@/components/Logo";
 import { TopicLauncher } from "@/components/TopicLauncher";
@@ -84,9 +85,21 @@ export default function Today() {
             </div>
           </section>
           <aside className="flex flex-col gap-4 lg:w-[320px]" aria-label="Coach">
-            <div className="card flex items-start gap-3">
-              <Mark size={44} className="shrink-0" />
-              <p>{na?.kind === "resume" ? "Short and steady works. Ten minutes still counts." : na?.kind === "start" ? "Try first. Help comes one step at a time if you need it." : "Start with one subject. You can add more later."}</p>
+            <div className="card space-y-3">
+              <div className="flex items-start gap-3">
+                <Mark size={44} className="shrink-0" />
+                <p>{na?.kind === "resume" ? "Short and steady works. Ten minutes still counts." : na?.kind === "start" ? "Try first. Help comes one step at a time if you need it." : "Start with one subject. You can add more later."}</p>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
+                <SpeakButton
+                  text={`${greeting()}, ${me?.display_name || "explorer"}. ${na?.reason || "Start with one subject. You can add more later."}`}
+                  title="Today's coach"
+                  hint={na?.concept_title || "algebra"}
+                  subjectId={na?.subject_id}
+                  label="Speak coach"
+                />
+                <Link href="/teachers" className="btn-link text-meta">Meet 3D Teachers →</Link>
+              </div>
             </div>
             {today.data?.reviews?.length > 0 && (
               <div className="card">

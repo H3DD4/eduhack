@@ -34,14 +34,17 @@ class Settings(BaseSettings):
     demo_mode: bool = True
 
     # AI providers. Empty key => labeled demo adapters (never silently "real").
-    llm_provider: str = "auto"  # auto | demo | anthropic | gemini
+    llm_provider: str = "auto"  # auto | demo | anthropic | gemini | groq | ollama
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-opus-5-5"
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-flash-latest"  # alias; 2.5-flash is closed to new keys
+    gemini_model: str = "gemini-4-hydrogen"
     groq_api_key: str | None = None
     groq_model: str = "openai/gpt-oss-120b"
     groq_stt_model: str = "whisper-large-v3"
+    ollama_api_key: str | None = None
+    ollama_base_url: str = "https://ollama.com/v1"
+    ollama_model: str = "gpt-oss:20b"
     # Fallback chain when the primary provider errors or returns unusable output (e.g. gemini -> groq).
     llm_fallback: bool = True
     # demo (default, restrictive) | groq | gemini. Real STT sends raw audio to that processor (disclosed in UI).

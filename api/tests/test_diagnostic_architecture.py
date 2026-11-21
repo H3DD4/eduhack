@@ -257,3 +257,22 @@ def test_diagnostic_item_bank_integrates_with_uploaded_course_and_rag_grounding(
     src_row = next((r for r in custom_rows if r.kind == "expand"), None)
     assert src_row is not None
     assert src_row.answer_key == "2x + 6" and src_row.source_page == 2
+
+
+def test_ollama_provider_routing_and_execution(db_session, monkeypatch):
+    """When OLLAMA_API_KEY is set, llm_gateway routes to Ollama and validates structured JSON output."""
+    from thinkfirst.config import get_settings
+    from thinkfirst.modules.tutor.llm import service as llm
+
+    monkeypatch.setenv("LLM_PROVIDER", "auto")
+    monkeypatch.setenv("OLLAMA_API_KEY", "test-ollama-key")
+    monkeypatch.setenv("OLLAMA_MODEL", "llama3.3")
+    get_settings.cache_clear()
+    try:
+        assert llm.active_provider() == "ollama"
+        assert llm.capabilities()["llm_provider"] == "ollama"
+        assert "Ollama" in llm.capabilities()["text_processors"]
+    finally:
+        monkeypatch.setenv("LLM_PROVIDER", "demo")
+        monkeypatch.setenv("OLLAMA_API_KEY", "")
+        get_settings.cache_clear()

@@ -10,6 +10,7 @@ const STATIC: Item[] = [
   { label: "Today", hint: "Home", href: "/today" },
   { label: "Subjects", hint: "All courses", href: "/subjects" },
   { label: "Add a subject", hint: "Upload or type a topic", href: "/subjects/new" },
+  { label: "Meet your 3D Teachers", hint: "Speaking avatars (Newton, Einstein, Curie, Al-Khwarizmi)", href: "/teachers" },
   { label: "Planner", hint: "Reviews and study blocks", href: "/planner" },
   { label: "Progress", hint: "Evidence by subject", href: "/progress" },
   { label: "Settings", hint: "Account", href: "/settings?section=account" },

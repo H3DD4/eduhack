@@ -1,6 +1,7 @@
 "use client";
 import katex from "katex";
 import Link from "next/link";
+import { SpeakButton } from "./avatar/AvatarSpeakerContext";
 import { Mark } from "./Logo";
 import { ReactNode, useEffect, useRef } from "react";
 
@@ -163,9 +164,12 @@ export function MathText({ text, className = "" }: { text: string; className?: s
 export function Companion({ message, hidden }: { message: string; hidden?: boolean }) {
   if (hidden) return null;
   return (
-    <aside aria-label="Companion note" className="flex items-start gap-3 rounded-card border-2 border-dashed border-ink-muted p-3 text-ink">
-      <Mark size={40} className="shrink-0" />
-      <p className="pt-2">{message}</p>
+    <aside aria-label="Companion note" className="flex items-start justify-between gap-3 rounded-card border-2 border-dashed border-ink-muted p-3 text-ink">
+      <div className="flex items-start gap-3">
+        <Mark size={40} className="shrink-0" />
+        <p className="pt-2">{message}</p>
+      </div>
+      <SpeakButton text={message} title="Companion" label="Speak" className="shrink-0" />
     </aside>
   );
 }

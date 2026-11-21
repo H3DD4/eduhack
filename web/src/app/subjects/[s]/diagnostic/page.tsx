@@ -4,6 +4,8 @@
 // while keeping "Skip and open the roadmap" always available (records insufficient evidence, never zero ability).
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { SpeakButton } from "@/components/avatar/AvatarSpeakerContext";
+import { TeacherAvatar } from "@/components/avatar/TeacherAvatar";
 import { SubjectShell } from "@/components/SubjectShell";
 import { MathText } from "@/components/ui";
 import { api, trackEvent } from "@/lib/api";
@@ -195,7 +197,10 @@ export default function Diagnostic() {
             </fieldset>
 
             <div className="space-y-3">
-              <p className="label">2. Your answer</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="label !mb-0">2. Your answer</p>
+                <SpeakButton text={item.prompt} title={`Question ${item.step_no}`} subjectId={s} label="Speak question" />
+              </div>
               <p className="font-mono text-problem"><MathText text={item.prompt} /></p>
               {item.options && item.options.length > 0 && (
                 <div className="space-y-2">
@@ -263,7 +268,22 @@ export default function Diagnostic() {
 
         {session?.status === "completed" && view && (
           <div className="space-y-4 border-t border-stroke pt-4" data-phase="diagnostic-result">
-            <h3 className="text-page-compact">{view.headline}</h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-page-compact">{view.headline}</h3>
+              <SpeakButton
+                text={`${view.headline}. Your next frontier: ${view.where_we_start?.map((w: any) => w.title).join(", ")}. ${view.strength?.message || ""} ${view.real_gap || ""} ${view.calibration_line || ""} First session booked: ${view.first_session_booked?.slot} on ${view.first_session_booked?.starting_skill?.title}. ${view.transparency || ""}`}
+                title="Diagnostic profile"
+                subjectId={s}
+                label="Speak summary"
+              />
+            </div>
+            <TeacherAvatar
+              text={`${view.headline}! [wave] Your starting frontier is ${view.where_we_start?.map((w: any) => w.title).join(", ")}. [point] ${view.strength?.message || ""} [happy] ${view.real_gap || ""} [encouraging] ${view.calibration_line || ""} [nod] Your first session is booked for ${view.first_session_booked?.slot}.`}
+              hint={view.where_we_start?.[0]?.title || "algebra"}
+              title="Diagnostic result"
+              compact
+              stageHeight={250}
+            />
             <div className="fade-in space-y-2 rounded-card border-2 border-ink bg-surface-subtle p-5 shadow-hard">
               <p><span className="text-ink-muted">Your next frontier:</span> {view.where_we_start?.map((w: any) => w.title).join(", ")}</p>
               <p><span className="text-ink-muted">Strength spotted:</span> {view.strength?.message}</p>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppShell, useMe } from "@/components/AppShell";
+import { SpeakButton } from "@/components/avatar/AvatarSpeakerContext";
 import { ExplainFlow } from "@/components/session/ExplainFlow";
 import { FocusSheet } from "@/components/session/FocusSheet";
 import { ProfessorPanel } from "@/components/session/ProfessorPanel";
@@ -255,7 +256,10 @@ function Workspace() {
               {(stage === "explanation" || stage === "followup") && (cur ? (
                 <div className="space-y-4">
                   {stage === "followup" && <p className="text-meta font-semibold text-help">One more question about that idea.</p>}
-                  <h2 id="st-h" tabIndex={-1} className="text-problem font-bold">{cur.prompt}</h2>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <h2 id="st-h" tabIndex={-1} className="text-problem font-bold">{cur.prompt}</h2>
+                    <SpeakButton text={cur.prompt} title={stage === "followup" ? "Follow-up question" : "Explain it back"} hint={view.concept.title} subjectId={s} taskId={cur.id} label="Speak prompt" />
+                  </div>
                   {cur.context?.rubric && (
                     <details className="rounded-detail border border-border p-3">
                       <summary className="cursor-pointer font-semibold">What will be checked (declared before you answer)</summary>

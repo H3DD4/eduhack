@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ThinkFirst — talking teachers preview</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Acme&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+:root{--tf-hl:#25D366;--tf-strong:#128C7E;--tf-ink:#0F172A;--tf-slate:#334155;--tf-paper:#F4FBF7;--tf-soft:#DCF8C6}
+:root[data-theme="warm"]{--tf-hl:#128C7E;--tf-strong:#075E54;--tf-paper:#ECFDF5;--tf-soft:#D1FAE5}
+*{box-sizing:border-box}
+body{margin:0;background:var(--tf-paper);color:var(--tf-ink);font-family:Acme,system-ui,sans-serif;font-synthesis:none}
+main{max-width:1040px;margin:0 auto;padding:28px 18px 64px}
+h1{font-weight:400;font-size:42px;margin:0}
+.hl{background:var(--tf-hl);padding:0 .3em;border-radius:.3em}
+.note{color:#5B6473;font-size:15px}
+.card{background:#fff;border:2px solid var(--tf-ink);border-radius:22px;box-shadow:0 6px 0 var(--tf-ink);overflow:hidden;margin-top:18px}
+.stage{position:relative;height:470px;background:var(--tf-soft);cursor:pointer;outline:none}
+.stage:focus-visible{box-shadow:inset 0 0 0 4px var(--tf-ink)}
+.badge{position:absolute;top:12px;padding:4px 12px;border:2px solid var(--tf-ink);border-radius:999px;background:#fff;font-size:14px;pointer-events:none}
+.board{position:absolute;right:14px;top:58px;max-width:48%;padding:14px 18px;border:2px solid var(--tf-ink);border-radius:18px;background:#fff;box-shadow:0 5px 0 var(--tf-ink);font-family:"JetBrains Mono",monospace;font-size:22px;pointer-events:none;animation:pop .25s cubic-bezier(.2,.8,.2,1)}
+.board small{display:block;font-family:Acme;font-size:13px;color:#5B6473}
+@keyframes pop{from{opacity:0;transform:scale(.9) translateY(6px)}to{opacity:1;transform:none}}
+.bar{position:absolute;left:0;right:0;bottom:0;height:6px;background:rgba(15,23,42,.12)}.bar>i{display:block;height:100%;width:0;background:var(--tf-strong);transition:width .3s}
+.cap{margin:0;padding:16px 18px 8px;font-size:21px;line-height:1.6;min-height:84px;border-top:2px solid var(--tf-ink)}
+.cap mark{background:var(--tf-hl);border-radius:4px;padding:0 2px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 18px 14px}
+button,input{font:inherit;font-size:16px}
+button{min-height:44px;padding:0 16px;border-radius:14px;cursor:pointer;border:2px solid var(--tf-ink);background:#fff;color:var(--tf-ink);box-shadow:0 4px 0 var(--tf-ink);transition:transform .14s cubic-bezier(.2,.8,.2,1),box-shadow .14s,background .14s}
+button:hover{transform:translateY(-2px);box-shadow:0 6px 0 var(--tf-ink);background:var(--tf-soft)}
+button:active{transform:translateY(3px);box-shadow:0 1px 0 var(--tf-ink)}
+button[disabled]{opacity:.45;box-shadow:none;transform:none;cursor:not-allowed}
+.pri{background:var(--tf-ink);color:#fff;box-shadow:0 5px 0 var(--tf-strong)}.pri:hover{background:#1E293B;box-shadow:0 8px 0 var(--tf-strong)}
+.on{background:var(--tf-hl)}
+input{flex:1;min-width:200px;min-height:44px;padding:0 14px;border:2px solid var(--tf-ink);border-radius:14px}
+input:focus{outline:none;box-shadow:0 0 0 4px color-mix(in srgb,var(--tf-hl) 55%,transparent)}
+.tr{margin:0 18px 14px;padding:6px;border:2px solid #E2E8F0;border-radius:14px;max-height:200px;overflow:auto;list-style:none}
+.tr button{width:100%;text-align:left;box-shadow:none;border:0;min-height:36px}.tr button.cur{background:var(--tf-hl)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+</style>
+</head>
+<body>
+<main>
+<h1>Meet your <span class="hl">teachers</span></h1>
+<p class="note">Move the mouse: they follow you. Hover: they wave. Click them: they react. Space plays, arrow keys move between sentences when the stage is focused.</p>
+<div class="chips" role="group" aria-label="Teacher">
+  <button data-p="newton" class="on">Newton</button><button data-p="einstein">Einstein</button><button data-p="curie">Marie Curie</button><button data-p="khwarizmi">Al-Khwarizmi</button>
+  <button id="theme">Switch theme</button><button id="frame">Full body / bust</button>
+</div>
+<div class="card">
+  <div class="stage" id="stage" tabindex="0" role="application" aria-label="Teacher. Space to play or pause, arrows for sentences, R to replay.">
+    <span class="badge" id="name" style="left:12px">Newton</span>
+    <span class="badge" id="state" style="right:12px;display:none">Speaking</span>
+    <div class="bar"><i id="prog"></i></div>
+  </div>
+  <p class="cap" id="cap"></p>
+  <div class="row">
+    <button class="pri" id="play">Play</button>
+    <button id="prev" aria-label="Previous sentence">◀</button><button id="again" aria-label="Replay sentence">↻</button><button id="next" aria-label="Next sentence">▶</button>
+    <button id="speed">1×</button><button id="voice">Voice on</button><button id="trBtn">Transcript</button>
+    <span class="note" id="count"></span>
+  </div>
+  <ol class="tr" id="tr" hidden></ol>
+  <form class="row" id="ask"><input id="q" placeholder="Ask a question, e.g. why does the apple fall?" aria-label="Ask a question"><button id="mic" type="button" aria-label="Ask by voice">Mic</button><button>Ask</button></form>
+</div>
+<p class="note">Preview of <code>src/components/avatar/</code> (TeacherAvatar). Needs internet for three.js and fonts. Answers here are canned; in the app they come from the Professor.</p>
+</main>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"}}</script>
+<script type="module">
+import * as THREE from "three";
+// Procedural cartoon scientists for ThinkFirst (Newton, Einstein, Marie Curie, al-Khwarizmi), built from three.js
+// primitives: no model files. Toon shading + ink outlines to match the UI, colours read from the theme variables.
+// The rig supports facial expressions, mouth shapes (visemes), gestures and a falling-apple physics demo.
+
+const PERSONAS = {
+    newton: { name: "Newton", field: "Physics and motion", lang: "en-GB", hair: "wig", facial: "none", long: false, prop: "apple" },
+    einstein: { name: "Einstein", field: "Energy, light and relativity", lang: "en-GB", hair: "wild", facial: "mustache", long: false, prop: "chalk" },
+    curie: { name: "Marie Curie", field: "Chemistry and atoms", lang: "fr-FR", hair: "bun", facial: "none", long: true, prop: "flask" },
+    khwarizmi: { name: "Al-Khwarizmi", field: "Algebra and algorithms", lang: "ar", hair: "turban", facial: "beard", long: true, prop: "scroll" },
+};
+/** Pick a persona from a subject or concept title. */
+function personaFor(hint = "") {
+    const h = hint.toLowerCase();
+    if (/relativ|energy|light|photon|quantum|einstein|e\s*=\s*mc/.test(h))
+        return "einstein";
+    if (/chem|atom|radio|element|molecul|reaction|curie|biolog/.test(h))
+        return "curie";
+    if (/algebra|equation|algorithm|math|fraction|number|bracket|expand|khwarizmi|linear|matri|calcul|derivativ|probab/.test(h))
+        return "khwarizmi";
+    return "newton";
+}
+function readPalette() {
+    const cs = typeof window !== "undefined" ? getComputedStyle(document.documentElement) : null;
+    const v = (name, fallback) => {
+        const raw = cs?.getPropertyValue(name).trim();
+        return raw && !raw.startsWith("var(") ? raw : fallback;
+    };
+    return {
+        coat: v("--tf-slate", "#334155"), vest: v("--tf-strong", "#128C7E"), accent: v("--tf-hl", "#25D366"), ink: v("--tf-ink", "#0F172A"),
+        skin: "#F6CDA8", skinShade: "#E9A982", cloth: "#FFFFFF", mouth: "#7A2331",
+    };
+}
+const EMOTIONS = {
+    neutral: { smile: 0.35, browY: 0, browTilt: 0, squint: 0, wide: 0, tilt: 0 },
+    happy: { smile: 1, browY: 0.02, browTilt: 0.1, squint: 0.18, wide: 0, tilt: 0.05 },
+    thinking: { smile: 0, browY: 0.01, browTilt: -0.25, squint: 0.1, wide: 0, tilt: -0.12 },
+    surprised: { smile: 0, browY: 0.07, browTilt: 0.25, squint: 0, wide: 0.18, tilt: 0 },
+    encouraging: { smile: 0.8, browY: 0.035, browTilt: 0.2, squint: 0.08, wide: 0, tilt: 0.08 },
+    proud: { smile: 1, browY: 0.03, browTilt: 0, squint: 0.3, wide: 0, tilt: -0.05 },
+};
+const VISEMES = {
+    rest: { w: 1, h: 0 }, A: { w: 1, h: 1 }, E: { w: 1.3, h: 0.4 }, O: { w: 0.6, h: 0.85 }, M: { w: 1.05, h: 0.02 },
+};
+/** Map a letter to a mouth shape. */
+function visemeFor(ch) {
+    const c = ch.toLowerCase();
+    if ("aáàâä".includes(c))
+        return "A";
+    if ("oóôöuúùwq".includes(c))
+        return "O";
+    if ("eéèêiíyjsztcdgknxh".includes(c))
+        return "E";
+    if ("mbpfv".includes(c))
+        return "M";
+    return "rest";
+}
+const GESTURE_TIME = { wave: 1.6, point: 2.2, think: 2.6, shrug: 1.4, celebrate: 1.7, nod: 0.9, apple: 3.2, poke: 0.8, bow: 1.6 };
+function toonRamp() {
+    const data = new Uint8Array([110, 110, 110, 255, 200, 200, 200, 255, 255, 255, 255, 255]);
+    const tex = new THREE.DataTexture(data, 3, 1, THREE.RGBAFormat);
+    tex.minFilter = THREE.NearestFilter;
+    tex.magFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    return tex;
+}
+function buildCharacter(persona = "newton", p = readPalette()) {
+    const cfg = PERSONAS[persona];
+    const hairColor = persona === "curie" ? "#5B3A29" : persona === "khwarizmi" ? "#2F2A28" : "#EEF0F4";
+    const ramp = toonRamp();
+    const geoms = [];
+    const mats = [];
+    const outlineMat = new THREE.MeshBasicMaterial({ color: p.ink, side: THREE.BackSide });
+    mats.push(outlineMat);
+    const cache = new Map();
+    const toon = (color) => {
+        let m = cache.get(color);
+        if (!m) {
+            m = new THREE.MeshToonMaterial({ color, gradientMap: ramp });
+            cache.set(color, m);
+            mats.push(m);
+        }
+        return m;
+    };
+    const basic = (color, opacity = 1) => {
+        const m = new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity });
+        mats.push(m);
+        return m;
+    };
+    const g = (geo) => { geoms.push(geo); return geo; };
+    const part = (geo, color, o = {}) => {
+        const mesh = new THREE.Mesh(g(geo), toon(color));
+        if (o.pos)
+            mesh.position.set(...o.pos);
+        if (o.scale)
+            mesh.scale.set(...o.scale);
+        if (o.rot)
+            mesh.rotation.set(...o.rot);
+        if (o.outline !== false) {
+            const out = new THREE.Mesh(geo, outlineMat);
+            out.scale.setScalar(typeof o.outline === "number" ? o.outline : 1.06);
+            mesh.add(out);
+        }
+        return mesh;
+    };
+    const sphere = (r, seg = 28) => new THREE.SphereGeometry(r, seg, Math.round(seg * 0.75));
+    const capsule = (r, len) => new THREE.CapsuleGeometry(r, len, 6, 16);
+    // deterministic pseudo-random for hair tufts
+    let seed = 7;
+    const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+    const root = new THREE.Group();
+    const body = new THREE.Group(); // squash/jump pivot
+    root.add(body);
+    const shadow = new THREE.Mesh(g(new THREE.CircleGeometry(0.85, 40)), basic(p.ink, 0.16));
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.set(0.12, 0.005, 0.1);
+    shadow.scale.set(1, 0.7, 1);
+    root.add(shadow);
+    // ---------- legs or long garment ----------
+    if (cfg.long) {
+        const robe = persona === "curie" ? "#3B2F3A" : p.cloth;
+        body.add(part(new THREE.CylinderGeometry(0.6, 0.76, 0.72, 32, 1, true), robe, { pos: [0, 0.36, 0], outline: 1.03 }));
+        body.add(part(new THREE.CircleGeometry(0.76, 32), robe, { pos: [0, 0.005, 0], rot: [Math.PI / 2, 0, 0], outline: false }));
+        for (const sx of [-1, 1])
+            body.add(part(sphere(0.13), "#1B1F2A", { pos: [sx * 0.2, 0.06, 0.68], scale: [1, 0.5, 1.4] }));
+    }
+    else {
+        for (const sx of [-1, 1]) {
+            body.add(part(capsule(0.12, 0.28), persona === "einstein" ? "#4B5563" : p.cloth, { pos: [sx * 0.17, 0.3, 0] }));
+            body.add(part(capsule(0.14, 0.22), p.ink, { pos: [sx * 0.17, 0.6, 0], outline: 1.04 }));
+            const shoe = part(sphere(0.15), "#1B1F2A", { pos: [sx * 0.18, 0.08, 0.07], scale: [1, 0.55, 1.45] });
+            if (persona === "newton")
+                shoe.add(part(new THREE.BoxGeometry(0.11, 0.05, 0.04), p.accent, { pos: [0, 0.12, 0.12], outline: 1.15 }));
+            body.add(shoe);
+        }
+    }
+    // ---------- torso ----------
+    const torso = new THREE.Group();
+    torso.position.y = 0.72;
+    body.add(torso);
+    const coat = persona === "khwarizmi" ? p.cloth : persona === "curie" ? "#3B2F3A" : p.coat;
+    torso.add(part(new THREE.CylinderGeometry(0.44, 0.62, 0.95, 32), coat, { pos: [0, 0.42, 0], outline: 1.04 }));
+    torso.add(part(sphere(0.45), coat, { pos: [0, 0.86, 0], scale: [1.05, 0.55, 0.9], outline: 1.04 }));
+    if (persona === "newton") {
+        torso.add(part(sphere(0.3), p.vest, { pos: [0, 0.5, 0.36], scale: [0.9, 1.45, 0.42], outline: 1.05 }));
+        for (let i = 0; i < 3; i++)
+            torso.add(part(sphere(0.035, 12), p.accent, { pos: [0, 0.68 - i * 0.16, 0.49], outline: 1.3 }));
+        torso.add(part(sphere(0.18), p.cloth, { pos: [0, 0.98, 0.25], scale: [1.15, 0.65, 0.7] }));
+        torso.add(part(new THREE.ConeGeometry(0.13, 0.26, 16), p.cloth, { pos: [0, 0.8, 0.33], rot: [Math.PI + 0.25, 0, 0], outline: 1.08 }));
+    }
+    else if (persona === "einstein") {
+        torso.add(part(sphere(0.3), p.cloth, { pos: [0, 0.62, 0.34], scale: [0.75, 1.05, 0.42], outline: 1.05 })); // shirt
+        torso.add(part(new THREE.ConeGeometry(0.07, 0.42, 4), p.vest, { pos: [0, 0.6, 0.47], rot: [Math.PI, 0, 0], outline: 1.1 })); // tie
+    }
+    else if (persona === "curie") {
+        torso.add(part(sphere(0.16), p.cloth, { pos: [0, 0.98, 0.22], scale: [1.4, 0.45, 0.8] })); // white collar
+        torso.add(part(sphere(0.05, 12), p.accent, { pos: [0, 0.92, 0.36], outline: 1.2 })); // brooch
+    }
+    else {
+        torso.add(part(new THREE.BoxGeometry(0.14, 0.9, 0.05), p.vest, { pos: [0.16, 0.45, 0.47], rot: [0.12, 0, 0], outline: 1.05 })); // sash
+        torso.add(part(new THREE.TorusGeometry(0.47, 0.06, 10, 40), p.accent, { pos: [0, 0.35, 0], rot: [Math.PI / 2, 0, 0], outline: 1.08 })); // belt
+    }
+    const pin = part(new THREE.OctahedronGeometry(0.06), p.accent, { pos: [0.27, 0.72, 0.42], rot: [0, 0, Math.PI / 4], outline: 1.25 });
+    if (persona !== "khwarizmi")
+        torso.add(pin);
+    // ---------- arms ----------
+    const arm = (side) => {
+        const pivot = new THREE.Group();
+        pivot.position.set(side * 0.5, 0.86, 0);
+        pivot.add(part(capsule(0.12, 0.42), coat, { pos: [0, -0.3, 0], outline: 1.06 }));
+        pivot.add(part(new THREE.CylinderGeometry(0.155, 0.155, 0.13, 20), persona === "khwarizmi" ? p.accent : p.cloth, { pos: [0, -0.6, 0], outline: 1.06 }));
+        pivot.add(part(sphere(0.12), p.skin, { pos: [0, -0.72, 0.02] }));
+        pivot.rotation.z = side * 0.18;
+        torso.add(pivot);
+        return pivot;
+    };
+    const left = arm(-1);
+    const right = arm(1);
+    // prop in the right hand
+    const prop = new THREE.Group();
+    prop.position.set(0, -0.76, 0.16);
+    if (cfg.prop === "apple") {
+        prop.add(part(sphere(0.14), "#E5484D", { scale: [1.05, 0.95, 1.05] }));
+        prop.add(part(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 6), "#6B4226", { pos: [0, 0.16, 0], outline: 1.4 }));
+        prop.add(part(sphere(0.05, 12), "#2BB673", { pos: [0.06, 0.18, 0], scale: [1.4, 0.4, 0.8], rot: [0, 0, -0.5], outline: 1.2 }));
+    }
+    else if (cfg.prop === "chalk") {
+        prop.add(part(new THREE.CylinderGeometry(0.035, 0.035, 0.22, 10), "#FFFFFF", { rot: [0.6, 0, 0.4], outline: 1.2 }));
+    }
+    else if (cfg.prop === "flask") {
+        prop.add(part(sphere(0.13), p.accent, { pos: [0, -0.02, 0], outline: 1.08 }));
+        prop.add(part(new THREE.CylinderGeometry(0.045, 0.045, 0.16, 12), "#DDE7F0", { pos: [0, 0.16, 0], outline: 1.15 }));
+    }
+    else {
+        prop.add(part(new THREE.CylinderGeometry(0.06, 0.06, 0.34, 14), "#F3E5C0", { rot: [0, 0, Math.PI / 2], outline: 1.1 }));
+        for (const sx of [-1, 1])
+            prop.add(part(new THREE.CylinderGeometry(0.075, 0.075, 0.03, 14), "#8B5E34", { pos: [sx * 0.18, 0, 0], rot: [0, 0, Math.PI / 2], outline: 1.1 }));
+    }
+    right.add(prop);
+    const propHome = prop.position.clone();
+    // ---------- head ----------
+    const head = new THREE.Group();
+    head.position.y = 1.0;
+    torso.add(head);
+    head.add(part(sphere(0.5, 36), p.skin, { pos: [0, 0.5, 0], outline: 1.035 }));
+    if (cfg.hair === "wig") {
+        head.add(part(sphere(0.52, 32), hairColor, { pos: [0, 0.87, -0.06], scale: [1.02, 0.55, 1.0], outline: 1.04 }));
+        head.add(part(sphere(0.55, 32), hairColor, { pos: [0, 0.48, -0.2], scale: [1.0, 1.05, 0.8], outline: 1.04 }));
+        for (const sx of [-1, 1])
+            [[0.56, 0.5, -0.02], [0.6, 0.24, -0.06], [0.58, -0.02, -0.1], [0.5, -0.24, -0.14]].forEach(([x, y, z], i) => head.add(part(sphere(0.19 - i * 0.012, 20), hairColor, { pos: [sx * x, y, z], outline: 1.07 })));
+        [[-0.22, -0.18], [0.22, -0.18], [0, -0.26]].forEach(([x, y]) => head.add(part(sphere(0.2, 20), hairColor, { pos: [x, y, -0.42], outline: 1.07 })));
+    }
+    else if (cfg.hair === "wild") {
+        head.add(part(sphere(0.5, 28), hairColor, { pos: [0, 0.7, -0.12], scale: [1.08, 0.75, 0.95], outline: 1.04 }));
+        for (let i = 0; i < 22; i++) {
+            const a = (i / 22) * Math.PI * 2;
+            const r = 0.55 + rand() * 0.12;
+            const y = 0.55 + Math.sin(a) * 0.38;
+            const x = Math.cos(a) * r;
+            if (y < 0.35 && Math.abs(x) < 0.3)
+                continue; // keep the face clear
+            head.add(part(sphere(0.13 + rand() * 0.07, 14), hairColor, { pos: [x, y, -0.15 - rand() * 0.15], outline: 1.08 }));
+        }
+    }
+    else if (cfg.hair === "bun") {
+        head.add(part(sphere(0.53, 32), hairColor, { pos: [0, 0.72, -0.08], scale: [1.02, 0.7, 0.98], outline: 1.04 }));
+        head.add(part(sphere(0.24, 24), hairColor, { pos: [0, 1.02, -0.32], outline: 1.06 }));
+        for (const sx of [-1, 1])
+            head.add(part(sphere(0.18, 18), hairColor, { pos: [sx * 0.46, 0.5, -0.05], outline: 1.07 }));
+    }
+    else {
+        head.add(part(new THREE.TorusGeometry(0.42, 0.16, 16, 40), p.cloth, { pos: [0, 0.86, -0.04], rot: [Math.PI / 2 - 0.12, 0, 0], outline: 1.05 }));
+        head.add(part(sphere(0.43, 28), p.cloth, { pos: [0, 0.98, -0.06], scale: [1, 0.6, 1], outline: 1.04 }));
+        head.add(part(sphere(0.06, 12), p.accent, { pos: [0, 0.88, 0.6], outline: 1.2 }));
+    }
+    if (cfg.facial === "beard") {
+        head.add(part(sphere(0.36, 28), hairColor, { pos: [0, 0.08, 0.18], scale: [1.05, 0.8, 0.85], outline: 1.04 }));
+    }
+    // face
+    const eyes = [];
+    const pupils = [];
+    for (const sx of [-1, 1]) {
+        const eye = new THREE.Group();
+        eye.position.set(sx * 0.17, 0.54, 0.47);
+        eye.add(part(sphere(0.115, 24), "#FFFFFF", { scale: [1, 1.12, 0.55], outline: 1.1 }));
+        const pupil = new THREE.Mesh(g(sphere(0.06, 16)), basic(p.ink));
+        pupil.position.set(0, -0.01, 0.055);
+        pupil.scale.set(1, 1.15, 0.5);
+        const shine = new THREE.Mesh(g(sphere(0.02, 10)), basic("#FFFFFF"));
+        shine.position.set(0.022, 0.03, 0.03);
+        pupil.add(shine);
+        eye.add(pupil);
+        head.add(eye);
+        eyes.push(eye);
+        pupils.push(pupil);
+    }
+    const browColor = persona === "curie" || persona === "khwarizmi" ? hairColor : p.ink;
+    const brows = [-1, 1].map((sx) => {
+        const b = part(capsule(0.028, 0.13), browColor, { pos: [sx * 0.18, 0.7, 0.47], rot: [0, 0, Math.PI / 2], outline: false });
+        head.add(b);
+        return { mesh: b, side: sx };
+    });
+    head.add(part(sphere(0.075, 18), p.skinShade, { pos: [0, 0.44, 0.5], scale: [1, 0.9, 0.9], outline: 1.1 }));
+    if (cfg.facial === "mustache") {
+        for (const sx of [-1, 1])
+            head.add(part(sphere(0.1, 16), hairColor, { pos: [sx * 0.08, 0.35, 0.47], scale: [1.3, 0.55, 0.6], rot: [0, 0, sx * -0.25], outline: 1.08 }));
+    }
+    for (const sx of [-1, 1]) {
+        const blush = new THREE.Mesh(g(sphere(0.07, 14)), basic("#F28B82", 0.45));
+        blush.position.set(sx * 0.28, 0.37, 0.47);
+        blush.scale.set(1.2, 0.7, 0.4);
+        head.add(blush);
+    }
+    const mouthY = cfg.facial === "mustache" ? 0.24 : 0.27;
+    const mouth = part(sphere(0.1, 20), p.mouth, { pos: [0, mouthY, 0.465], scale: [1.2, 0.18, 0.4], outline: 1.12 });
+    head.add(mouth);
+    const smile = new THREE.Mesh(g(new THREE.TorusGeometry(0.11, 0.018, 8, 24, Math.PI)), basic(p.ink));
+    smile.position.set(0, mouthY + 0.03, 0.49);
+    smile.rotation.z = Math.PI;
+    head.add(smile);
+    // thought bubble for "think"
+    const bubble = new THREE.Group();
+    bubble.position.set(0.7, 1.15, 0.1);
+    bubble.add(part(sphere(0.07, 12), "#FFFFFF", { pos: [-0.25, -0.25, 0], outline: 1.15 }));
+    bubble.add(part(sphere(0.11, 14), "#FFFFFF", { pos: [-0.12, -0.1, 0], outline: 1.12 }));
+    bubble.add(part(sphere(0.22, 20), "#FFFFFF", { pos: [0.12, 0.12, 0], scale: [1.3, 1, 0.6], outline: 1.06 }));
+    bubble.add(part(sphere(0.05, 10), p.accent, { pos: [0.12, 0.13, 0.13], outline: 1.2 }));
+    bubble.visible = false;
+    head.add(bubble);
+    // ---------- state ----------
+    let emotion = "neutral";
+    const em = { ...EMOTIONS.neutral };
+    let gesture = null;
+    let blinkIn = 2 + Math.random() * 3;
+    let blink = 0;
+    let idleIn = 6 + Math.random() * 4;
+    let idleLook = { x: 0, y: 0, t: 0 };
+    const apple = { y: 0, vy: 0, z: 0, active: false };
+    const lerp = (a, b, k) => a + (b - a) * k;
+    const setEmotion = (e) => { emotion = e; };
+    const play = (name) => {
+        gesture = { name, t: 0 };
+        if (name === "apple") {
+            apple.active = true;
+            apple.y = 0;
+            apple.vy = 0;
+            apple.z = 0;
+        }
+        if (name === "poke")
+            emotion = "surprised";
+        if (name === "celebrate")
+            emotion = "happy";
+        if (name === "think")
+            emotion = "thinking";
+    };
+    const update = (dt, t, s) => {
+        const calm = s.reduced ? 0 : 1;
+        const k = Math.min(1, dt * 9);
+        const target = EMOTIONS[emotion];
+        Object.keys(em).forEach((key) => { em[key] = lerp(em[key], target[key], Math.min(1, dt * 6)); });
+        // gesture progress 0..1, eased bell for poses
+        let gName = null;
+        let gp = 0;
+        if (gesture) {
+            gesture.t += dt;
+            gp = gesture.t / GESTURE_TIME[gesture.name];
+            gName = gesture.name;
+            if (gp >= 1) {
+                if (gesture.name === "poke" || gesture.name === "think")
+                    emotion = "neutral";
+                gesture = null;
+                gName = null;
+            }
+        }
+        const bell = gName ? Math.sin(Math.min(1, gp) * Math.PI) : 0;
+        const hold = gName ? Math.min(1, Math.min(gp, 1 - gp) * 5) : 0; // quick in, hold, quick out
+        // idle life: glance around now and then
+        idleIn -= dt;
+        if (idleIn <= 0 && !s.speaking && !gName) {
+            idleIn = 6 + Math.random() * 6;
+            idleLook = { x: (Math.random() - 0.5) * 1.4, y: (Math.random() - 0.6) * 0.8, t: 1.4 };
+        }
+        idleLook.t = Math.max(0, idleLook.t - dt);
+        const lx = idleLook.t > 0 ? idleLook.x : s.look.x;
+        const ly = idleLook.t > 0 ? idleLook.y : s.look.y;
+        // body: breathe, bob, jump, squash
+        torso.scale.y = 1 + 0.015 * Math.sin(t * 2.1) * calm;
+        let jump = 0;
+        let squash = 1;
+        if (gName === "celebrate" && calm)
+            jump = Math.max(0, Math.sin(gp * Math.PI * 2)) * 0.35;
+        if (gName === "poke")
+            squash = 1 - 0.12 * Math.sin(gp * Math.PI * 3) * (1 - gp);
+        if (gName === "bow")
+            torso.rotation.x = lerp(torso.rotation.x, 0.45 * bell, k);
+        else
+            torso.rotation.x = lerp(torso.rotation.x, 0, k);
+        body.position.y = jump + 0.025 * Math.sin(t * 2.1) * calm;
+        body.scale.set(2 - squash, squash, 2 - squash);
+        shadow.scale.set(1 - jump * 0.8, 0.7 - jump * 0.5, 1);
+        // head
+        let nod = 0;
+        if (gName === "nod")
+            nod = Math.sin(gp * Math.PI * 4) * 0.18 * calm;
+        if (s.speaking)
+            nod += 0.04 * Math.sin(t * 6) * calm;
+        let lookDownAtApple = 0;
+        if (gName === "apple")
+            lookDownAtApple = Math.min(1, gp * 3);
+        head.rotation.y = lerp(head.rotation.y, (lx * 0.45 + (gName === "point" ? 0.35 * hold : 0)) * (s.reduced ? 0.4 : 1), k);
+        head.rotation.x = lerp(head.rotation.x, -ly * 0.18 + nod + lookDownAtApple * 0.35 + (gName === "think" ? -0.15 * hold : 0), k);
+        head.rotation.z = lerp(head.rotation.z, em.tilt + 0.04 * Math.sin(t * 1.3) * calm + (gName === "shrug" ? 0.15 * bell : 0), k);
+        pupils.forEach((pu) => {
+            const px = gName === "think" ? 0.03 : gName === "point" ? 0.035 : lx * 0.03;
+            const py = gName === "think" ? 0.035 : gName === "apple" ? -0.03 : -0.01 + ly * 0.025;
+            pu.position.x = lerp(pu.position.x, px, k);
+            pu.position.y = lerp(pu.position.y, py, k);
+        });
+        // eyes: blink, squint, widen
+        blinkIn -= dt;
+        if (blinkIn <= 0) {
+            blink = 1;
+            blinkIn = 2.2 + Math.random() * 3.5;
+        }
+        blink = Math.max(0, blink - dt * 7);
+        const open = (1 - Math.sin(Math.min(1, blink) * Math.PI) * 0.92) * (1 - em.squint) * (1 + em.wide);
+        eyes.forEach((e) => { e.scale.y = open; e.scale.x = 1 + em.wide * 0.5; });
+        // brows
+        brows.forEach(({ mesh, side }) => {
+            const y = 0.7 + em.browY + (s.speaking ? 0.02 + 0.015 * Math.sin(t * 3) : 0) + (gName === "shrug" ? 0.05 * bell : 0);
+            mesh.position.y = lerp(mesh.position.y, y, k);
+            const asym = emotion === "thinking" ? (side < 0 ? 0.25 : -0.15) : 0;
+            mesh.rotation.z = lerp(mesh.rotation.z, Math.PI / 2 + side * -em.browTilt + asym, k);
+        });
+        // mouth: viseme shape while speaking, smile when resting
+        const vis = s.speaking ? VISEMES[s.viseme] : VISEMES.rest;
+        const openAmt = s.speaking ? Math.max(0.1, s.open) * vis.h : emotion === "surprised" ? 0.55 : 0;
+        const mw = s.speaking ? vis.w : emotion === "surprised" ? 0.6 : 1;
+        mouth.scale.y = lerp(mouth.scale.y, 0.1 + openAmt * 0.9, Math.min(1, dt * 20));
+        mouth.scale.x = lerp(mouth.scale.x, 1.15 * mw, Math.min(1, dt * 20));
+        const showSmile = !s.speaking && emotion !== "surprised" && em.smile > 0.2;
+        smile.visible = showSmile;
+        mouth.visible = !showSmile || openAmt > 0.05;
+        smile.scale.set(0.8 + em.smile * 0.5, 0.4 + em.smile * 0.9, 1);
+        // arms
+        const L = { x: 0.04 * Math.sin(t * 1.6) * calm, z: -0.18 };
+        const R = { x: -0.3 + 0.04 * Math.sin(t * 1.6 + 1) * calm, z: 0.18 };
+        if (s.speaking && !gName && calm) {
+            L.x = -0.9 - 0.25 * Math.sin(t * 2.4);
+            L.z = -0.35 - 0.1 * Math.sin(t * 1.7);
+            R.x = -0.5;
+        }
+        if (s.hover && !s.speaking && !gName && calm) {
+            L.x = -0.2;
+            L.z = -2.5 + 0.28 * Math.sin(t * 11);
+        }
+        switch (gName) {
+            case "wave":
+                L.x = -0.2;
+                L.z = -2.5 + 0.3 * Math.sin(t * 12) * calm;
+                break;
+            case "point":
+                R.x = -1.35 * hold;
+                R.z = 0.18 + 0.55 * hold;
+                break;
+            case "think":
+                L.x = -2.1 * hold;
+                L.z = 0.55 * hold - 0.18 * (1 - hold);
+                break;
+            case "shrug":
+                L.z = -0.18 - 0.7 * bell;
+                R.z = 0.18 + 0.7 * bell;
+                L.x = R.x = -0.4 * bell;
+                break;
+            case "celebrate":
+                L.z = -0.18 - 2.4 * hold;
+                R.z = 0.18 + 2.4 * hold;
+                break;
+            case "bow":
+                L.x = -0.3 * bell;
+                R.x = -0.5 * bell;
+                break;
+            case "apple":
+                R.x = 0;
+                R.z = 0.18;
+                break;
+            case "poke":
+                L.z = -0.18 - 0.5 * bell;
+                R.z = 0.18 + 0.5 * bell;
+                break;
+            default: break;
+        }
+        left.rotation.x = lerp(left.rotation.x, L.x, k);
+        left.rotation.z = lerp(left.rotation.z, L.z, k);
+        right.rotation.x = lerp(right.rotation.x, R.x, k);
+        right.rotation.z = lerp(right.rotation.z, R.z, k);
+        // falling apple (Newton's gravity demo): drop, bounce twice, float back to the hand
+        if (apple.active) {
+            const ground = -1.44 - propHome.y; // offset from the hand to the floor in the arm's space
+            if (gp < 0.72) {
+                apple.vy -= 9.8 * 0.55 * dt;
+                apple.y += apple.vy * dt;
+                apple.z = Math.min(0.35, apple.z + dt * 0.5);
+                if (apple.y < ground) {
+                    apple.y = ground;
+                    apple.vy = -apple.vy * 0.45;
+                    if (Math.abs(apple.vy) > 0.4)
+                        emotion = "surprised";
+                }
+            }
+            else {
+                apple.y = lerp(apple.y, 0, Math.min(1, dt * 6));
+                apple.z = lerp(apple.z, 0, Math.min(1, dt * 6));
+                if (gp > 0.8)
+                    emotion = "happy";
+            }
+            if (!gName) {
+                apple.active = false;
+                apple.y = 0;
+                apple.z = 0;
+                emotion = "neutral";
+            }
+            prop.position.set(propHome.x, propHome.y + apple.y, propHome.z + apple.z);
+        }
+        else {
+            prop.position.lerp(propHome, Math.min(1, dt * 8));
+        }
+        prop.rotation.y += dt * 0.6 * calm;
+        bubble.visible = gName === "think";
+        if (bubble.visible)
+            bubble.position.y = 1.15 + 0.03 * Math.sin(t * 3);
+    };
+    const dispose = () => { geoms.forEach((x) => x.dispose()); mats.forEach((x) => x.dispose()); ramp.dispose(); };
+    return { root, persona, update, setEmotion, play, dispose };
+}
+
+const EMOTION_TAGS = ["happy", "thinking", "surprised", "encouraging", "proud", "neutral"];
+const GESTURE_TAGS = ["wave", "point", "think", "shrug", "celebrate", "nod", "apple", "bow"];
+const TAG = /\[([a-z]+)(?::\s*([^\]]*))?\]/gi;
+/** Make text speakable: drop markdown and LaTeX markup. */
+function speakable(t) {
+    return t
+        .replace(/\$\$?([^$]+)\$\$?/g, "$1")
+        .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "$1 over $2")
+        .replace(/\\cdot|\\times/g, " times ")
+        .replace(/\^2\b/g, " squared").replace(/\^3\b/g, " cubed").replace(/\^\{?([^}\s]+)\}?/g, " to the power $1")
+        .replace(/_\{?([^}\s]+)\}?/g, " $1")
+        .replace(/\\[a-zA-Z]+/g, " ")
+        .replace(/[*_#`{}]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+function hasDirections(script) {
+    return /\[(?:[a-z]+)(?::[^\]]*)?\]/i.test(script);
+}
+function parseScript(script) {
+    // split after sentence punctuation plus any directions that trail it
+    const chunks = script.replace(/\s+/g, " ").trim().split(/(?<=[.!?…](?:\s*\[[^\]]*\])*)\s+(?=[^\s[])/);
+    return chunks.map((chunk) => {
+        const seg = { text: "", gestures: [], pause: 250 };
+        const plain = chunk.replace(TAG, (_m, name, arg) => {
+            const n = name.toLowerCase();
+            if (EMOTION_TAGS.includes(n))
+                seg.emotion = n;
+            else if (GESTURE_TAGS.includes(n))
+                seg.gestures.push(n);
+            else if (n === "board")
+                seg.board = arg && arg.trim() ? arg.trim() : null;
+            else if (n === "pause")
+                seg.pause += 700;
+            return " ";
+        });
+        seg.text = speakable(plain);
+        if (!seg.text)
+            seg.pause += 600;
+        return seg;
+    }).filter((s) => s.text || s.gestures.length || s.emotion || s.board !== undefined);
+}
+/** Add stage directions to plain text (e.g. a generated lesson) so the avatar feels directed. */
+function autoDirect(text, persona, opts = {}) {
+    const raw = text.replace(/\s+/g, " ").trim().split(/(?<=[.!?…])\s+(?=\S)/);
+    let appleUsed = false;
+    const segs = raw.map((sentence, i) => {
+        const seg = { text: speakable(sentence), gestures: [], pause: 250 };
+        const math = sentence.match(/\$([^$]+)\$/) || sentence.match(/([A-Za-z]\s*=\s*[^,.;]+)/);
+        if (math) {
+            seg.board = math[0];
+            seg.gestures.push("point");
+        }
+        if (i === 0 && opts.greet)
+            seg.gestures.push("wave");
+        if (/\?\s*$/.test(sentence)) {
+            seg.gestures.push("think");
+            seg.emotion = "thinking";
+        }
+        if (persona === "newton" && !appleUsed && /gravit|fall|apple|weight|drop/i.test(sentence)) {
+            seg.gestures.push("apple");
+            appleUsed = true;
+        }
+        if (/\b(great|well done|good job|you can|you've got)\b/i.test(sentence))
+            seg.emotion = "encouraging";
+        if (/\b(surpris|amazing|imagine|notice)\b/i.test(sentence))
+            seg.emotion = seg.emotion ?? "surprised";
+        if (i > 0 && i % 3 === 0 && !seg.gestures.length)
+            seg.gestures.push("nod");
+        return seg;
+    });
+    if (segs.length) {
+        const last = segs[segs.length - 1];
+        last.emotion = last.emotion ?? "encouraging";
+    }
+    return segs;
+}
+function toSegments(script, persona, opts = {}) {
+    return hasDirections(script) ? parseScript(script) : autoDirect(script, persona, opts);
+}
+
+const SCRIPTS = {
+  newton: "Hello, I am Isaac Newton! [wave] [happy] Today: my three laws of motion. First, an object keeps doing what it is doing unless a force acts on it. [nod] Second, force equals mass times acceleration. [board: F = m × a] [point] Push a trolley, then a car, with the same force: the car barely moves. [shrug] Third, every action has an equal and opposite reaction. [board: F₁ = −F₂] [point] And gravity? Watch my apple. [apple] [board:] It falls because the Earth pulls on it. [surprised] Now try one yourself. [encouraging] [nod]",
+  einstein: "Hello, I am Albert Einstein! [wave] Energy and mass are two faces of the same thing. [board: E = m c²] [point] Because the speed of light is huge, a tiny mass holds a huge amount of energy. [surprised] Imagine riding next to a beam of light. [think] Curious? Ask me a question. [encouraging]",
+  curie: "Bonjour, I am Marie Curie! [wave] [happy] Everything around you is made of atoms. [nod] Some atoms are unstable and give off energy: that is radioactivity. [board: Radium, Ra] [point] I discovered two elements, polonium and radium. [proud] Science needs patience. [encouraging] [bow]",
+  khwarizmi: "Peace be upon you, I am al-Khwarizmi. [bow] The word algebra comes from my book. [proud] An equation is a balance: what you do to one side, do to the other. [board: 3x + 5 = 20] [point] Take away 5 from both sides. [board: 3x = 15] Now divide by 3. [board: x = 5] [celebrate] You just solved it, step by step. [encouraging]"
+};
+const ANSWERS = [
+  [/apple|fall|gravit/i, "Everything with mass pulls on everything else. [think] The Earth is so massive that it pulls the apple down. [apple] [board: F = G m₁ m₂ / r²] [point]"],
+  [/mass|weight/i, "Mass is how much stuff something has. [nod] Weight is the force of gravity on that mass. [board: W = m × g] [point]"],
+  [/algebra|equation|solve/i, "Keep the balance! [shrug] Whatever you do to one side, do to the other. [encouraging]"],
+  [/.*/, "Good question! [think] Try it first in your own words, then I will help step by step. [encouraging] [nod]"]
+];
+const $ = (id) => document.getElementById(id);
+const stage = $("stage"), cap = $("cap");
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.outputColorSpace = THREE.SRGBColorSpace;
+stage.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x3a4252, 1.4));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(2.5, 5, 4); scene.add(sun);
+const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
+let bust = false, persona = "newton", rig = null;
+function frame(){ const t = bust ? new THREE.Vector3(0,2.25,0) : new THREE.Vector3(0,1.55,0); camera.position.set(0,t.y+.15,bust?3.4:6.8); camera.lookAt(t); }
+function mount(){ if (rig){ scene.remove(rig.root); rig.dispose(); } rig = buildCharacter(persona, readPalette()); scene.add(rig.root); $("name").textContent = PERSONAS[persona].name + " · " + PERSONAS[persona].field; }
+frame(); mount();
+function resize(){ const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix(); }
+resize(); new ResizeObserver(resize).observe(stage);
+const look={x:0,y:0}; let hover=false, speaking=false, open=0, boardOn=false;
+let word={text:"",at:0}, seg={text:"",at:0,last:0};
+addEventListener("pointermove",e=>{const r=stage.getBoundingClientRect();look.x=Math.max(-1,Math.min(1,(e.clientX-(r.left+r.width/2))/(innerWidth/2)));look.y=Math.max(-1,Math.min(1,((r.top+r.height*.3)-e.clientY)/(innerHeight/2)));});
+stage.addEventListener("pointerenter",()=>hover=true); stage.addEventListener("pointerleave",()=>hover=false);
+const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+let rate = 1; const clock = new THREE.Clock();
+renderer.setAnimationLoop(()=>{
+  const dt=Math.min(clock.getDelta(),.05), t=clock.elapsedTime, now=performance.now();
+  let vis="rest";
+  if (speaking){ const useWord = now-seg.last<600 && word.text; const src = useWord?word.text:seg.text, st = useWord?word.at:seg.at; const i=Math.floor((now-st)/1000*14*rate); vis = (i>=src.length && useWord) ? "M" : visemeFor(src.charAt(Math.min(src.length-1,Math.max(0,i)))||" "); open=.55+.45*Math.abs(Math.sin(t*11)); }
+  else open=Math.max(0,open-dt*6);
+  const off = boardOn ? (bust?-.55:-.85) : 0; rig.root.position.x += (off-rig.root.position.x)*Math.min(1,dt*4);
+  rig.update(dt,t,{speaking,open,viseme:vis,look,hover,reduced:reduced.matches});
+  renderer.render(scene,camera);
+});
+// ---------- player ----------
+let queue = toSegments(SCRIPTS[persona], persona), idx = 0, playing = false, token = 0, voiceOn = true, wordAt = null;
+const canSpeak = "speechSynthesis" in window;
+function voice(){ const v=speechSynthesis.getVoices().filter(v=>v.lang.startsWith("en")); return v.find(x=>/male|daniel|george|arthur|thomas|ryan|guy/i.test(x.name))||v.find(x=>x.lang==="en-GB")||v[0]; }
+function setBoard(b){ const old=stage.querySelector(".board"); if(old) old.remove(); boardOn=!!b; if(!b) return; const d=document.createElement("div"); d.className="board"; d.innerHTML="<small>Board</small>"; d.append(document.createTextNode(b.replace(/\$/g,""))); stage.append(d); }
+function render(){
+  const s = queue[Math.min(idx,queue.length-1)]; let pos=0;
+  cap.innerHTML = (s?.text||"").split(/(\s+)/).map(w=>{const st=pos;pos+=w.length;const on=wordAt!=null&&!/^\s+$/.test(w)&&wordAt>=st&&wordAt<pos;const esc=w.replace(/&/g,"&amp;").replace(/</g,"&lt;");return on?"<mark>"+esc+"</mark>":esc;}).join("");
+  $("prog").style.width = (queue.length ? (idx+(playing?.5:0))/queue.length*100 : 0)+"%";
+  $("count").textContent = Math.min(idx+1,queue.length)+" / "+queue.length;
+  $("play").textContent = playing ? "Pause" : idx>0 ? "Resume" : "Play";
+  $("state").style.display = playing ? "" : "none"; $("state").textContent = voiceOn ? "Speaking" : "Captions only";
+  $("prev").disabled = idx===0; $("next").disabled = idx>=queue.length-1;
+  const tr=$("tr"); tr.innerHTML=""; queue.forEach((q,i)=>{const li=document.createElement("li");const b=document.createElement("button");b.textContent=q.text||"…";if(i===idx)b.className="cur";b.onclick=()=>jump(i);li.append(b);tr.append(li);});
+}
+function run(list,i,chain){
+  const my=++token; if(canSpeak) speechSynthesis.cancel();
+  if(i>=list.length){ speaking=false; playing=false; wordAt=null; idx=0; rig.setEmotion("neutral"); render(); return; }
+  const s=list[i]; idx=i; wordAt=null;
+  if(s.emotion) rig.setEmotion(s.emotion);
+  s.gestures.forEach((g,n)=>setTimeout(()=>{ if(token===my) rig.play(g); }, n*900));
+  if(s.board!==undefined) setBoard(s.board);
+  render();
+  const next=()=>{ if(token!==my) return; speaking=false; wordAt=null; render(); if(chain) setTimeout(()=>{ if(token===my) run(list,i+1,true); }, s.pause); else { playing=false; render(); } };
+  if(!s.text){ setTimeout(next,300); return; }
+  seg={text:s.text,at:performance.now(),last:0};
+  if(voiceOn && canSpeak){
+    const u=new SpeechSynthesisUtterance(s.text); u.lang="en-GB"; const v=voice(); if(v) u.voice=v; u.rate=.96*rate; u.pitch= persona==="curie"?1.15:.9;
+    u.onstart=()=>{ if(token===my){ speaking=true; seg.at=performance.now(); } };
+    u.onboundary=e=>{ if(token!==my||(e.name&&e.name!=="word")) return; word={text:s.text.slice(e.charIndex).split(/\s/)[0]||"",at:performance.now()}; seg.last=performance.now(); wordAt=e.charIndex; render(); };
+    u.onend=next; u.onerror=next; speechSynthesis.speak(u);
+  } else {
+    speaking=true; const ws=s.text.split(/(\s+)/); let pos=0,n=0; const ms=60000/(170*rate);
+    const tick=()=>{ if(token!==my) return; while(n<ws.length&&/^\s+$/.test(ws[n])){pos+=ws[n].length;n++;} if(n>=ws.length){next();return;} word={text:ws[n],at:performance.now()}; seg.last=performance.now(); wordAt=pos; render(); pos+=ws[n].length; n++; setTimeout(tick, ms+ws[n-1].length*12); };
+    tick();
+  }
+}
+function play(){ playing=true; run(queue, idx>=queue.length?0:idx, true); }
+function pause(){ token++; if(canSpeak) speechSynthesis.cancel(); speaking=false; playing=false; wordAt=null; render(); }
+function jump(i){ i=Math.max(0,Math.min(queue.length-1,i)); if(playing) run(queue,i,true); else { pause(); run(queue,i,false); } }
+function sayOnce(text){ playing=true; run(toSegments(text,persona),0,true); }
+$("play").onclick=()=> playing?pause():play();
+$("prev").onclick=()=>jump(idx-1); $("next").onclick=()=>jump(idx+1); $("again").onclick=()=>jump(idx);
+$("speed").onclick=()=>{ const r=[.85,1,1.2]; rate=r[(r.indexOf(rate)+1)%r.length]; $("speed").textContent=rate+"×"; };
+$("voice").onclick=()=>{ voiceOn=!voiceOn; $("voice").textContent=voiceOn?"Voice on":"Captions only"; $("voice").classList.toggle("on",!voiceOn); if(playing) pause(); };
+$("trBtn").onclick=()=>{ $("tr").hidden=!$("tr").hidden; };
+stage.addEventListener("click",()=>{ if(playing) return; rig.play("poke"); const lines=["Careful! I was thinking. [surprised]","Yes? Press play and I will explain. [happy]","Eureka! [celebrate]","Hello there! [wave]"]; if(persona==="newton") lines.push("Did you know my apple story? [apple] Watch it fall."); setTimeout(()=>sayOnce(lines[Math.floor(Math.random()*lines.length)]),350); });
+stage.addEventListener("keydown",e=>{ if(e.key===" "||e.key==="k"){e.preventDefault(); playing?pause():play();} else if(e.key==="ArrowRight"){e.preventDefault();jump(idx+1);} else if(e.key==="ArrowLeft"){e.preventDefault();jump(idx-1);} else if(e.key==="r"){e.preventDefault();jump(idx);} });
+document.querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>{ pause(); persona=b.dataset.p; document.querySelectorAll("[data-p]").forEach(x=>x.classList.toggle("on",x===b)); mount(); queue=toSegments(SCRIPTS[persona],persona); idx=0; setBoard(null); render(); });
+$("theme").onclick=()=>{ const r=document.documentElement; r.dataset.theme = r.dataset.theme==="warm" ? "" : "warm"; mount(); };
+$("frame").onclick=()=>{ bust=!bust; frame(); };
+$("ask").onsubmit=e=>{ e.preventDefault(); const q=$("q").value.trim(); if(!q) return; pause(); rig.play("think"); const a=ANSWERS.find(([re])=>re.test(q))[1]; $("q").value=""; setTimeout(()=>sayOnce(a),1200); };
+const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+if(!Rec) $("mic").hidden = true; else $("mic").onclick=()=>{ const r=new Rec(); r.lang="en-GB"; r.interimResults=true; $("mic").classList.add("on"); $("mic").textContent="Listening…"; r.onresult=e=>{ $("q").value=Array.from(e.results).map(x=>x[0].transcript).join(""); if(e.results[e.results.length-1].isFinal) $("ask").requestSubmit(); }; r.onend=()=>{ $("mic").classList.remove("on"); $("mic").textContent="Mic"; }; r.start(); };
+render();
+</script>
+</body>
+</html>

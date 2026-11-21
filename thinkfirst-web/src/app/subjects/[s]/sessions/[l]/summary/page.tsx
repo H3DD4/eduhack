@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { labelText } from "@/components/Roadmap";
+import { SpeakButton } from "@/components/avatar/AvatarSpeakerContext";
 import { SubjectShell } from "@/components/SubjectShell";
 import { Companion, ErrorBox, EvidencePill, LiveRegion, Skeleton } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -54,7 +55,16 @@ export default function Summary() {
         {error && <ErrorBox message="The summary could not load. Your evidence is not lost." onRetry={reload} />}
         {data && (
           <>
-            <h2 className="text-section">{data.concept.title}: what you showed</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-section">{data.concept.title}: what you showed</h2>
+              <SpeakButton
+                text={`${data.concept.title}: what you showed. Application: ${data.application}. Retention: ${data.retention}.`}
+                title="Session summary"
+                hint={data.concept.title}
+                subjectId={s}
+                label="Speak summary"
+              />
+            </div>
             {!data.has_receipts ? <p className="card">Checks pending — no evidence has been accepted yet.</p> : (
               <>
                 <div className="grid gap-3 sm:grid-cols-2">

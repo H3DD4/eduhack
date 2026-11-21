@@ -3,6 +3,8 @@
 // explicit "End this attempt and view worked solution" confirmation. Locked transfer offers conversion only.
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, newKey } from "@/lib/api";
+import { SpeakButton } from "../avatar/AvatarSpeakerContext";
+import { TeacherAvatar } from "../avatar/TeacherAvatar";
 import { Dialog, SimulatedLabel } from "../ui";
 
 export function ProfessorPanel({ task, subjectId, onClose, onChanged, onLocked }:
@@ -11,6 +13,7 @@ export function ProfessorPanel({ task, subjectId, onClose, onChanged, onLocked }
   const [confirmReveal, setConfirmReveal] = useState(false);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<any>(null);
+  const [show3D, setShow3D] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<ApiError | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -57,15 +60,41 @@ export function ProfessorPanel({ task, subjectId, onClose, onChanged, onLocked }
       className="fixed inset-x-0 bottom-0 z-40 max-h-[80vh] overflow-y-auto rounded-t-card border-t border-border bg-surface p-5 shadow-2xl xl:static xl:max-h-none xl:w-[320px] xl:rounded-card xl:border xl:shadow-none">
       <div className="flex items-start justify-between gap-2">
         <h2 id="p01-h" ref={heading} tabIndex={-1} className="text-section">Help</h2>
-        <button className="btn-secondary !min-h-[44px] !px-3" onClick={onClose} aria-label="Close help and return to task">✕</button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setShow3D((v) => !v)}
+            className="btn-secondary !min-h-[36px] !px-2.5 text-meta"
+          >
+            🎓 {show3D ? "Hide 3D" : "3D Teacher"}
+          </button>
+          <button className="btn-secondary !min-h-[44px] !px-3" onClick={onClose} aria-label="Close help and return to task">✕</button>
+        </div>
       </div>
       <p className="mt-1 text-meta text-ink-muted">Help never costs points. Asking early is fine.</p>
+      {show3D && (
+        <div className="mt-3">
+          <TeacherAvatar
+            text={
+              answer?.message ||
+              (steps.length ? `Step ${steps[steps.length - 1].level}, ${steps[steps.length - 1].label}: ${steps[steps.length - 1].content}` : "Ask for a hint or type a question below, and I will guide you step by step.")
+            }
+            hint={task?.prompt || ""}
+            compact
+            showPersonaPicker={false}
+            stageHeight={190}
+          />
+        </div>
+      )}
       {task && (
         <div className="mt-4 space-y-3">
           <ol className="space-y-2" aria-label="Help steps so far">
             {steps.map((h) => (
               <li key={h.level} className="hint-in rounded-detail bg-help-surface p-3 text-ink">
-                <p className="text-meta font-semibold text-help">Step {h.level}: {h.label}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-meta font-semibold text-help">Step {h.level}: {h.label}</p>
+                  <SpeakButton text={`Step ${h.level}, ${h.label}: ${h.content}`} title={`Help step ${h.level}`} subjectId={subjectId} taskId={task.id} label="Speak" />
+                </div>
                 <p className="mt-1">{h.content}</p>
               </li>
             ))}
@@ -88,7 +117,10 @@ export function ProfessorPanel({ task, subjectId, onClose, onChanged, onLocked }
         <p className="mt-1 text-meta text-ink-muted">Uses 1 unit of your allowance. The help steps above are free.</p>
         {answer && (
           <div className="mt-3 space-y-2" aria-live="polite">
-            {answer.simulated && <SimulatedLabel label={answer.label} />}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {answer.simulated && <SimulatedLabel label={answer.label} />}
+              <SpeakButton text={answer.message} title="Professor answer" subjectId={subjectId} taskId={task?.id} label="Speak answer" />
+            </div>
             <p>{answer.message}</p>
             {answer.citations?.map((c: any) => <p key={c.chunk_id} className="text-meta text-ink-muted">Course page {c.page}: “{c.quote.slice(0, 140)}…”</p>)}
           </div>
