@@ -27,6 +27,12 @@ services:
     ports: ["8333:8333"]
     volumes: [s3data:/data]
 
+  # Vector DB for RAG (course chunks + shared open library). Own volume; other projects' Qdrant untouched.
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports: ["6333:6333"]
+    volumes: [qdrantdata:/qdrant/storage]
+
   api:
     build: { context: ., dockerfile: api/Dockerfile }
     env_file:
@@ -44,6 +50,7 @@ services:
       S3_SECRET_KEY: thinkfirst_dev_secret  # dev only; SeaweedFS runs without identities locally
       APP_BASE_URL: http://localhost:3000
       DEMO_MODE: "true"
+      QDRANT_URL: http://qdrant:6333
     command: >
       sh -c "python -m alembic upgrade head && python -m thinkfirst.seed &&
              uvicorn thinkfirst.main:app --host 0.0.0.0 --port 8000"
@@ -52,6 +59,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
       s3: { condition: service_started }
+      qdrant: { condition: service_started }
 
   worker:
     build: { context: ., dockerfile: api/Dockerfile }
@@ -73,3 +81,4 @@ services:
 volumes:
   pgdata:
   s3data:
+  qdrantdata:

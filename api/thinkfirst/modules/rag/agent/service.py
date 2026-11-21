@@ -85,9 +85,15 @@ def index_item(db: Session, item: LicensedContent) -> int:
         buf = f"{buf}\n{p}".strip()
     if buf:
         chunks.append(buf)
+    rows = []
     for i, c in enumerate(chunks):
-        db.add(SharedChunk(licensed_content_id=item.id, ord=i, text=c, embedding=embed(f"{item.title}. {c}")))
+        row = SharedChunk(licensed_content_id=item.id, ord=i, text=c, embedding=embed(f"{item.title}. {c}"))
+        db.add(row)
+        rows.append(row)
     db.flush()
+    from thinkfirst.modules.rag.service import index_library_chunks
+
+    index_library_chunks(db, item, rows)
     return len(chunks)
 
 

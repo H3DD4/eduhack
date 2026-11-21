@@ -46,7 +46,15 @@ class Settings(BaseSettings):
     llm_fallback: bool = True
     # demo (default, restrictive) | groq | gemini. Real STT sends raw audio to that processor (disclosed in UI).
     stt_provider: str = "demo"
-    embedding_provider: str = "demo"
+    # Embeddings: auto = Hugging Face Inference when HF_TOKEN is set, else the labelled demo hashing embedder.
+    embedding_provider: str = "auto"  # auto | hf | demo
+    hf_token: str | None = None
+    hf_embed_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    hf_embed_dim: int = 384
+    # Vector DB: auto = Qdrant when QDRANT_URL is set and reachable, else pgvector/in-memory fallback.
+    vector_backend: str = "auto"  # auto | qdrant | postgres
+    qdrant_url: str | None = None
+    qdrant_api_key: str | None = None
     # Live resource agent: openly licensed sources only (Wikipedia, CC BY-SA). Off in tests.
     resource_discovery: bool = True
 

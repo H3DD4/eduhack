@@ -58,8 +58,11 @@ Rules for everyone:
 ## 4. rag — "what do we teach from?"
 | File | What it does |
 |---|---|
-| `service.py` | `hybrid()`: 1) the student's own course files → 2) shared library → 3) live fetch if nothing found |
-| `vector_store.py` | Vector DB: pgvector (Postgres) by default, FAISS if installed |
+| `service.py` | `hybrid()`: 1) the student's own course files → 2) shared library → 3) live fetch if nothing found; indexing + Qdrant/Postgres fallback |
+| `embedder.py` | **Hugging Face cloud embedder** (multilingual MiniLM, 384-d) — demo hashing embedder only as fallback |
+| `qdrant.py` | **Qdrant** REST client: collections, upsert, filtered search (owner + subject), delete |
+| `reindex.py` | `python -m thinkfirst.modules.rag.reindex` rebuilds Qdrant from Postgres |
+| `vector_store.py` | Fallback vector search (pgvector / in-memory) when Qdrant or HF is down |
 | `ingestion/` | Uploaded PDF/PPTX/TXT → text → chunks → proposed roadmap; typed topic → AI roadmap |
 | `library/models.py` | Shared open library (open-licence content only, with licence + credit) and its vector index |
 | `agent/service.py` | The resource agent: fetches openly licensed content (Wikipedia, CC BY-SA) using only the topic name |

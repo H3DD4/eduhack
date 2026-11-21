@@ -100,9 +100,16 @@ def _extract_job(db: Session, job: jobs.Job) -> dict:
     rev.page_count = len(pages)
     for i, text in enumerate(pages, start=1):
         db.add(SourcePage(owner_id=src.owner_id, revision_id=rev.id, page_no=i, text=text))
+    new_chunks = []
     for ch in extract.chunk_pages(pages):
-        db.add(SourceChunk(owner_id=src.owner_id, revision_id=rev.id, subject_id=src.subject_id, page_no=ch.page_no,
-                           span_start=ch.start, span_end=ch.end, text=ch.text, embedding=extract.demo_embed(ch.text)))
+        row = SourceChunk(owner_id=src.owner_id, revision_id=rev.id, subject_id=src.subject_id, page_no=ch.page_no,
+                          span_start=ch.start, span_end=ch.end, text=ch.text, embedding=extract.demo_embed(ch.text))
+        db.add(row)
+        new_chunks.append(row)
+    db.flush()
+    from thinkfirst.modules.rag import service as rag
+
+    rag.index_course_chunks(db, new_chunks)  # Qdrant + HF embeddings (fallback vectors stay in Postgres)
     src.current_revision_id = rev.id
     src.status = "extracted"
     db.flush()
@@ -320,6 +327,9 @@ def remove_source(db: Session, owner_id: str, source_id: str) -> Source:
             rev.storage_key = None
         db.execute(delete(SourcePage).where(SourcePage.revision_id == rev.id))
         db.execute(delete(SourceChunk).where(SourceChunk.revision_id == rev.id))
+        from thinkfirst.modules.rag import service as rag
+
+        rag.delete_course_revision(rev.id)
     src.removed_at = utcnow()
     src.generation += 1
     return src

@@ -50,6 +50,11 @@ flowchart LR
 | Historique & mémoire | `data/memory` | Append-only `memory.learning_events` (RLS) fed by events; history + recurring misconceptions |
 | Base vectorielle + cours officiels | `rag/vector_store.py`, `knowledge_library.shared_chunks` | pgvector per-student index (RLS) + shared open-content index; optional FAISS adapter |
 
+### RAG stack
+- **Embedder:** Hugging Face Inference, `paraphrase-multilingual-MiniLM-L12-v2` (384-d, multilingual). Fallback: demo hashing embedder.
+- **Vector DB:** Qdrant (docker service `qdrant`), collections `course_chunks__…` (private, filtered by owner + subject) and `open_library__…` (shared). Fallback: pgvector / in-memory.
+- **Chunking:** course pages → ~600-char windows cut at line breaks (page + span kept for citations); open library → Wikipedia intro paragraphs packed to ~700 chars.
+
 ### Hybrid retrieval
 1. Search the student's own course chunks (private, pgvector, RLS). Relevant → answer with page citations.
 2. Else search the **shared open library** (open-licence content already collected for any user).
