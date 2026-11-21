@@ -24,6 +24,39 @@ flowchart LR
   M6 -- "audio only (opt-in)" --> STT[Whisper on Groq / Gemini\nor labeled demo STT]
 ```
 
+## Learning architecture (team diagram → code)
+
+```mermaid
+flowchart LR
+  DIAG[Module DIAGNOSTIC\nmodules/diagnostic] --> ADAPT[Moteur d'ADAPTATION\nmodules/adaptation]
+  ADAPT --> TUT[TUTEUR LLM\nmodules/tutor + llm_gateway]
+  TUT <--> RAG[Module RAG\nmodules/rag]
+  ADAPT <--> PROF[(Profil élève\nmodules/student_profile\nPostgreSQL)]
+  ADAPT <--> MEM[(Historique & mémoire\nmodules/memory\nanswers, errors, misconceptions)]
+  TUT -- events --> MEM
+  TUT -- events --> PROF
+  RAG <--> VEC[(Base vectorielle\npgvector / optional FAISS\nrag/vector_store.py)]
+  RAG <--> LIB[(Shared open library + cours officiels\nknowledge_library.shared_chunks)]
+  LIB <-- live fetch on miss --> AGENT[Resource agent\nmodules/resource_discovery\nopen-licence only]
+```
+
+| Diagram box | Package | Responsibility |
+|---|---|---|
+| Module DIAGNOSTIC | `modules/diagnostic` | Optional baseline (C03), misconception diagnosis after every graded answer → `misconception.detected` |
+| Moteur d'adaptation | `modules/adaptation` | Next action, suggested level / side quest, adaptive review interval, memory-based nudges — every decision has a readable reason |
+| Tuteur LLM | `modules/tutor` + `modules/llm_gateway` | Sessions, help ladder, Professor, concept packs; provider chain Groq → Gemini → Anthropic with circuit breaker |
+| Module RAG | `modules/rag` | `hybrid()` retrieval: own course → shared library → live fetch; citations always returned |
+| Profil élève (PostgreSQL) | `modules/student_profile` | Evidence receipts, labels, concept summaries, review dates (schema `learner_model`) |
+| Historique & mémoire | `modules/memory` | Append-only `memory.learning_events` (RLS) fed by events; history + recurring misconceptions |
+| Base vectorielle + cours officiels | `rag/vector_store.py`, `knowledge_library.shared_chunks` | pgvector per-student index (RLS) + shared open-content index; optional FAISS adapter |
+
+### Hybrid retrieval
+1. Search the student's own course chunks (private, pgvector, RLS). Relevant → answer with page citations.
+2. Else search the **shared open library** (open-licence content already collected for any user).
+3. Else the resource agent fetches open content live (Wikipedia, CC BY-SA) using the concept/topic name only,
+   stores and indexes it once for everyone, links it privately to this subject, and the search runs again.
+The library grows with use; student data never enters the shared tables.
+
 ## Modules (`api/thinkfirst/modules/*`)
 
 | Module | Owns (schema) | Status this run | Service interface highlights |

@@ -93,3 +93,42 @@ delete retained audio (API). **Not covered**: NVDA/VoiceOver, real mobile browse
 the existing `disputed`/`superseded` fields, the full W05/W08/G04, BKT + FSRS, and G01 next-action priority. Before
 that, close the carry-overs in `docs/BACKLOG.md` (C03 sampled items, export/account deletion, real embeddings,
 screen-reader and mobile-device recorder testing).
+
+---
+
+# Round 2 — after user feedback (same day)
+
+User feedback: looked like a mobile app below 1024 px, required documents, felt empty and plain, roadmap not visual,
+wanted resume, topic-based learning from collected sources, hybrid retrieval, and the team's module layout.
+
+## What changed
+- **Web layout**: desktop sidebar from 768 px (D-028); game theme (hero banners, chunky cards, dark expedition sidebar).
+- **Learn anything without files**: type a topic (or pick one of 8 suggestions) → AI roadmap grounded in open sources
+  (shared library first, live Wikipedia fetch if missing) → one-click **Start learning**. Verified live:
+  "Ohm's law and simple circuits" → 10 levels in 6 s; "Newton's laws of motion" → grounded lesson, a practice
+  question, sensible feedback on a wrong answer (no answer leak, one targeted question) and a first hint.
+- **Concept packs** fill every level: lesson + key points + worked example + 2 practice questions (5-step ladder with
+  confirmed reveal) + rubric essentials + follow-ups + new-context transfer — all labelled AI-generated; prefetched
+  for the first two levels when a roadmap is confirmed.
+- **Visual roadmap**: game map per unit (winding trail, prerequisite edges, amber optional side quests, ★ per evidence
+  stage, glowing suggested level) + accessible List view; **Resume** on Today, course cards and roadmap header.
+- **Practice tab** (W02) lists every level with Practise; **Resources** shows open resources with licence/attribution.
+- **Modules per the team diagram**: `diagnostic`, `adaptation`, `tutor`+`llm_gateway`, `rag`, `student_profile`,
+  `memory`, vector store (`rag/vector_store.py`) — see ARCHITECTURE "Learning architecture".
+- **Hybrid retrieval**: own course → shared open library → live fetch, stored once and reused by every user.
+- **Reliability**: provider chain Groq → Gemini with a 5-minute circuit breaker (Gemini timed out for 60 s once).
+- Migrations 0002–0004 (concept packs, resource links, memory events with RLS, shared chunk index) applied on Postgres.
+
+## Tests (round 2)
+| Suite | Result |
+|---|---|
+| API pytest (SQLite) | **50 passed**, 4 skipped (Postgres-only) — new: memory events & nudges, side-quest suggestion after a repeated misconception, baseline check/skip, adaptive review interval, RAG citations + isolation, hybrid live-fetch then library reuse by a second student, provider breaker |
+| ruff / tsc | clean |
+| Playwright | see final message (run after these changes) |
+
+## Storage incident
+The C: drive reached 0 bytes free during Docker image builds (Docker's virtual disk was already ~43 GB). With the
+user's go-ahead we removed only regenerable data: Next.js build output, unused uv cache entries (806 MB), the npm
+cache, and Docker's build cache (12.2 GB inside the Docker disk). No volumes, containers or other projects' images
+were deleted. Windows only gets the Docker space back after compacting its virtual disk (needs admin; see final
+message).
