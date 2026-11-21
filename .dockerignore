@@ -1,0 +1,10 @@
+**/node_modules
+**/.venv
+**/.next
+api/*.db
+api/.storage*
+api/.env
+web
+docs
+reports
+research_notes

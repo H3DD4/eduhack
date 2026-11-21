@@ -1,0 +1,52 @@
+[project]
+name = "thinkfirst-api"
+version = "0.1.0"
+description = "ThinkFirst modular-monolith API (M0-M2)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "sqlalchemy>=2.0.30",
+  "alembic>=1.13",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+  "psycopg[binary]>=3.2",
+  "pgvector>=0.3",
+  "redis>=5.0",
+  "arq>=0.26",
+  "boto3>=1.34",
+  "pypdf>=4.2",
+  "python-pptx>=0.6.23",
+  "sympy>=1.12",
+  "httpx>=0.27",
+  "anthropic>=0.70",
+  "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5", "mypy>=1.10"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["thinkfirst*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501", "B008"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = false

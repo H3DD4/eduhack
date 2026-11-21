@@ -1,0 +1,28 @@
+"""Import every module's models so metadata/migrations see all tables, and register job/event handlers."""
+
+from thinkfirst.core import jobs  # noqa: F401
+from thinkfirst.modules.assessment import models as _assessment_models  # noqa: F401
+from thinkfirst.modules.assessment import service as _assessment_service  # noqa: F401  (event subscriber)
+from thinkfirst.modules.billing import models as _billing  # noqa: F401
+from thinkfirst.modules.explain_back import models as _eb  # noqa: F401
+from thinkfirst.modules.explain_back import service as _eb_service  # noqa: F401  (job handler)
+from thinkfirst.modules.identity import models as _identity  # noqa: F401
+from thinkfirst.modules.ingestion import models as _ingestion  # noqa: F401
+from thinkfirst.modules.ingestion import service as _ingestion_service  # noqa: F401  (job handler)
+from thinkfirst.modules.knowledge_library import models as _kl  # noqa: F401
+from thinkfirst.modules.learner_model import models as _lm  # noqa: F401
+from thinkfirst.modules.learner_model import service as _lm_service  # noqa: F401  (event subscribers)
+from thinkfirst.modules.llm_gateway import models as _llm  # noqa: F401
+from thinkfirst.modules.tutor import models as _tutor  # noqa: F401
+from thinkfirst.modules.tutor import service as _tutor_service  # noqa: F401  (job handlers)
+from thinkfirst.modules.workspaces import models as _ws  # noqa: F401
+
+# Tables holding private student data (owner_id). Postgres RLS policies are created for each.
+PRIVATE_TABLES = [
+    "core.jobs", "workspaces.subjects", "ingestion.sources", "ingestion.source_revisions", "ingestion.source_pages",
+    "ingestion.source_chunks", "ingestion.concept_graph_revisions", "ingestion.concepts", "ingestion.source_items",
+    "tutor.sessions", "tutor.tasks", "tutor.help_events", "tutor.reflections", "assessment.rubrics",
+    "assessment.attempts", "assessment.assessments", "explain_back.audio_takes", "explain_back.transcript_versions",
+    "learner_model.evidence_records", "learner_model.review_schedules", "billing.entitlements", "billing.reservations",
+    "billing.usage_charges", "knowledge_library.contributions",
+]
