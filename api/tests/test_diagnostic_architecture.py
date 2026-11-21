@@ -218,3 +218,42 @@ def test_full_adaptive_diagnostic_pipeline_to_initial_profile_and_first_plan(db_
     # Adaptation engine now uses the knowledge frontier / misconception evidence
     suggestion = adaptation.suggest_concept(db_session, user.id, subject_id)
     assert suggestion is not None
+    # And the diagnostic misconception flows into session_nudge for the frontier concept!
+    concepts = {c.key: c for c in ingestion.active_concepts(db_session, user.id, subject_id)}
+    nudge = adaptation.session_nudge(db_session, user.id, subject_id, concepts["1.2"].id)
+    assert nudge is not None and "first term" in nudge
+    # And PROFILE_READY prefetched the concept pack for the frontier skill ("1.2")!
+    from thinkfirst.modules.tutor import packs
+
+    assert packs.get_pack(db_session, user.id, concepts["1.2"].id) is not None
+
+
+def test_diagnostic_item_bank_integrates_with_uploaded_course_and_rag_grounding(db_session):
+    """Coherence with the Qdrant/HF RAG stack and uploaded course ingestion:
+    extracted exercises and RAG-grounded custom concepts get verified diagnostic items with page citations."""
+    from thinkfirst.fixtures import DEMO_COURSE_FILENAME, demo_course_pdf
+
+    user = identity.register(db_session, "upload-diag@example.com", "password123")
+    sub = workspaces.create_subject(db_session, user.id, "MATH 101 Upload")
+    ingestion.add_source(db_session, user.id, sub.id, DEMO_COURSE_FILENAME, "application/pdf",
+                         demo_course_pdf(), role="course", rights_ack=True)
+    prop = ingestion.proposed_revision(db_session, user.id, sub.id)
+    assert prop is not None
+    # Rename one concept key to a custom key so _generic_items_for_concept (RAG grounding + extracted SourceItem) runs
+    custom_c = next(c for c in ingestion.concepts_of(db_session, prop.id) if c.key == "1.2")
+    custom_c.key = "CUSTOM_1_2"
+    for item in ingestion.all_items(db_session, user.id, sub.id):
+        if item.concept_key == "1.2":
+            item.concept_key = "CUSTOM_1_2"
+    db_session.flush()
+
+    ingestion.confirm_scope(db_session, user.id, sub.id, prop.id, edits=[])
+    ks = diagnostic.knowledge_space_public(db_session, user.id, sub.id)
+    assert ks["ready_for_diagnostic"] is True and ks["quality_issues"] == []
+    _, _, rows = diagnostic.ensure_knowledge_space(db_session, user.id, sub.id)
+    custom_rows = [r for r in rows if "CUSTOM_1_2" in (r.skills or [])]
+    assert len(custom_rows) >= 2
+    # The extracted exercise 'Expand 2(x + 3).' was SymPy-verified with answer_key '2x + 6' and page 2 citation
+    src_row = next((r for r in custom_rows if r.kind == "expand"), None)
+    assert src_row is not None
+    assert src_row.answer_key == "2x + 6" and src_row.source_page == 2

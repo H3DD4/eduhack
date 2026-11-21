@@ -88,3 +88,18 @@ export function deviceId(): string {
     return "no-storage";
   }
 }
+
+/** Fire-and-forget xAPI behavioral tracking event (Layer 1 -> consent redaction -> Layer 3 indicators). */
+export function trackEvent(
+  verb: string,
+  object: { type: string; id: string; skills?: string[] },
+  result: Record<string, any> = {},
+  context: Record<string, any> = {},
+  subjectId?: string
+): void {
+  api("/tracking/events", {
+    method: "POST",
+    retries: 0,
+    json: { verb, object, result, context, subject_id: subjectId || null },
+  }).catch(() => {});
+}

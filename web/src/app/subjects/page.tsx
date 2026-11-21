@@ -18,7 +18,7 @@ export default function Subjects() {
         </div>
         <section className="hero p-6 md:p-8" aria-labelledby="la-h">
           <div className="relative z-10">
-            <h2 id="la-h" className="text-section">Start a new adventure</h2>
+            <h2 id="la-h" className="text-section">Start something <span className="hl-dark">new</span></h2>
             <p className="muted mt-1">Type any topic. Your roadmap, lessons and checks are built for you.</p>
             <div className="mt-4"><TopicLauncher dark /></div>
           </div>

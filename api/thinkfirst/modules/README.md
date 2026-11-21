@@ -25,22 +25,23 @@ Rules for everyone:
 ## 1. diagnostic — "where does understanding break?"
 | File | What it does |
 |---|---|
-| `service.py` | After each graded answer, publishes `misconception.detected`; optional baseline check / skip |
-| `router.py` | `GET /subjects/{s}/diagnostic`, `POST .../diagnostic/check`, `POST .../diagnostic/skip` |
+| `service.py` | Knowledge space builder (`SkillGraph` + Q-matrix + calibrated item bank grounded via `rag.ground` & SymPy-verified course exercises), adaptive CAT + KST + BKT + Elo diagnostic engine (`start_diagnostic`, `submit_diagnostic_answer`, `stop_diagnostic`), motivating 6-part result view, `misconception.detected`, and legacy baseline check / skip |
+| `router.py` | `GET /subjects/{s}/diagnostic`, `GET .../knowledge-space`, `POST .../diagnostic/start`, `POST .../diagnostic/answer`, `POST .../diagnostic/stop`, `POST .../diagnostic/check`, `POST .../diagnostic/skip` |
 | `grading/mathcheck.py` | SymPy grading for algebra (exact, not AI) + misconception patterns (e.g. "multiplied only the first term") |
 | `grading/explanation.py` | Checks AI rubric output: quotes must be the student's exact words; unclear ⇒ unscored, never zero |
 | `grading/rubrics.py` | The 5 rubric criteria + the demo rubric |
 | `grading/service.py` | Saves attempts and assessments; grades AI-generated questions (SymPy or AI grader) |
-| `grading/models.py` | Tables: rubrics, attempts, assessments |
-**Inputs:** an answer + the task. **Outputs:** an assessment, plus a `misconception.detected` event.
-**Tests:** `tests/test_policy_unit.py` (grading), `tests/test_modules.py` (baseline, misconception → memory).
+| `grading/models.py` | Tables: rubrics, attempts, assessments, diagnostic_items, diagnostic_sessions |
+| `../../domain/diagnostic/` & `../../domain/knowledge/` | Pure algorithms (framework-free): `DiagnosticEngine`, skill/item selection, graph inference, stopping rules, `InitialProfile`, `SkillGraph`, `ItemBank` |
+**Inputs:** an answer + confidence (1–5) + behavioral timings, or a session task. **Outputs:** `answer.graded`, `diagnostic.completed` (initial profile), `items.ready`, `misconception.detected`.
+**Tests:** `tests/test_domain_diagnostic.py`, `tests/test_diagnostic_architecture.py`, `tests/test_policy_unit.py`, `tests/test_modules.py`.
 
 ## 2. adaptation — "what next?"
 | File | What it does |
 |---|---|
-| `service.py` | `next_action` (Today), `suggest_concept` (next level or side quest after a repeated mistake), `review_interval` (1/2/4 days with reason), `session_nudge` (reminds you of your own past slip) |
-**Reads:** `data/student_profile` (evidence) and `data/memory` (history). **Writes:** nothing — it only decides.
-**Tests:** `tests/test_modules.py` (side quest, nudge, review interval).
+| `service.py` | `next_action` (Today), `suggest_concept` (side quest on recurring misconception → knowledge frontier from diagnostic → next unapplied level), `_on_profile_ready` (`plan.updated` first study plan), `review_interval` (1/2/4 days with reason), `session_nudge` (reminds you of your own past slip from diagnostic or practice) |
+**Reads:** `data/student_profile` (evidence, `skill_mastery`, `initial_profiles`) and `data/memory` (history, `behavior_indicators`). **Publishes:** `plan.updated`.
+**Tests:** `tests/test_modules.py`, `tests/test_diagnostic_architecture.py`.
 
 ## 3. tutor — "teach, help, check"
 | File | What it does |

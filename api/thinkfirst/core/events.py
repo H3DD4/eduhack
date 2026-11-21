@@ -117,6 +117,6 @@ EVENT_CONTRACTS: dict[str, EventContract] = {
     ANSWER_GRADED: EventContract(Brain.SESSION, (Brain.EVIDENCE,)),
     DIAGNOSTIC_COMPLETED: EventContract(Brain.SESSION, (Brain.EVIDENCE,)),
     MASTERY_UPDATED: EventContract(Brain.EVIDENCE, (Brain.PLAN,)),
-    PROFILE_READY: EventContract(Brain.EVIDENCE, (Brain.PLAN, Brain.STUDENT)),
+    PROFILE_READY: EventContract(Brain.EVIDENCE, (Brain.PLAN, Brain.STUDENT, Brain.SESSION)),
     PLAN_UPDATED: EventContract(Brain.PLAN, (Brain.STUDENT,)),
 }

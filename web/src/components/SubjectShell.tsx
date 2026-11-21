@@ -31,15 +31,15 @@ export function SubjectShell({ subjectId, children, action, crumb }:
             <h1 className="text-page-compact lg:text-page">{name}</h1>
             {action}
           </div>
-          <nav aria-label="Subject sections" className="mb-6 border-b border-border">
-            <ul className="flex gap-1">
+          <nav aria-label="Subject sections" className="mb-6 border-b-2 border-border pb-3">
+            <ul className="flex flex-wrap gap-2">
               {TABS.map((t, i) => {
                 const isActive = active === t.key;
                 const hideOnMobile = i >= 3;
                 return (
                   <li key={t.key} className={hideOnMobile ? "hidden md:block" : ""}>
                     <Link href={`${base}/${t.key}`} aria-current={isActive ? "page" : undefined}
-                      className={`flex min-h-[44px] items-center border-b-4 px-3 font-semibold ${isActive ? "border-action text-action-base" : "border-transparent text-ink-muted"}`}>
+                      className={`flex min-h-[44px] items-center rounded-pill border-2 px-4 transition-all duration-150 hover:-translate-y-0.5 ${isActive ? "border-ink bg-ink text-white shadow-edge" : "border-border bg-surface text-ink hover:border-ink"}`}>
                       {t.label}
                     </Link>
                   </li>
@@ -47,13 +47,13 @@ export function SubjectShell({ subjectId, children, action, crumb }:
               })}
               <li className="relative md:hidden">
                 <button aria-expanded={more} onClick={() => setMore((m) => !m)}
-                  className={`flex min-h-[44px] items-center border-b-4 px-3 font-semibold ${["resources", "progress"].includes(active) ? "border-action text-action-base" : "border-transparent text-ink-muted"}`}>
+                  className={`flex min-h-[44px] items-center rounded-pill border-2 px-4 ${["resources", "progress"].includes(active) ? "border-ink bg-ink text-white" : "border-border bg-surface text-ink"}`}>
                   More
                 </button>
                 {more && (
-                  <ul className="absolute right-0 z-20 mt-1 w-48 rounded-card border border-border bg-surface p-2 shadow-lg">
+                  <ul className="fade-in absolute right-0 z-20 mt-2 w-48 rounded-card border-2 border-ink bg-surface p-2 shadow-hard">
                     {TABS.slice(3).map((t) => (
-                      <li key={t.key}><Link href={`${base}/${t.key}`} className="flex min-h-[44px] items-center px-3">{t.label}</Link></li>
+                      <li key={t.key}><Link href={`${base}/${t.key}`} className="flex min-h-[44px] items-center rounded-control px-3 hover:bg-soft">{t.label}</Link></li>
                     ))}
                   </ul>
                 )}

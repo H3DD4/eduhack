@@ -9,7 +9,7 @@ import { ExplainFlow } from "@/components/session/ExplainFlow";
 import { FocusSheet } from "@/components/session/FocusSheet";
 import { ProfessorPanel } from "@/components/session/ProfessorPanel";
 import { LearnStage, PracticeStage, RecallStage, TransferStage } from "@/components/session/Stages";
-import { ErrorBox, SaveBadge, SaveState, Skeleton } from "@/components/ui";
+import { Dialog, ErrorBox, SaveBadge, SaveState, Skeleton } from "@/components/ui";
 import { api, ApiError, deviceId } from "@/lib/api";
 
 const STAGE_LABEL: Record<string, string> = {
@@ -34,6 +34,8 @@ function Workspace() {
   const [focus, setFocus] = useState(false);
   const [pausing, setPausing] = useState(false);
   const [quiet, setQuiet] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [leaveOpen, setLeaveOpen] = useState(false);
   const revRef = useRef<number>(0);
   const leaseRef = useRef<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -129,7 +131,7 @@ function Workspace() {
     } catch (e) {
       const ae = e as ApiError;
       if (ae.code === "STALE_REVISION") { await load(); }
-      else alert(ae.message);
+      else setNotice(ae.message);
     }
   };
 
@@ -156,13 +158,13 @@ function Workspace() {
       router.push("/today");
     } catch (e) {
       setPausing(false);
-      alert(`Could not save: ${(e as ApiError).message} Retry, or leave without saving (your local draft stays on this device).`);
+      setNotice(`Could not save: ${(e as ApiError).message} Retry, or leave without saving (your local draft stays on this device).`);
     }
   };
   const saveAndExit = async () => {
     if (timer.current) clearTimeout(timer.current);
     const ok = readOnly || (await pushCheckpoint(drafts));
-    if (!ok && !confirm("This draft is not synced. It stays on this device only. Leave anyway?")) return;
+    if (!ok) { setLeaveOpen(true); return; }
     router.push("/today");
   };
   const resume = async () => {
@@ -191,11 +193,11 @@ function Workspace() {
 
   return (
     <div className="min-h-screen" data-screen="S02" data-stage={stage} data-quiet={quiet ? "1" : "0"}>
-      <header className="sticky top-0 z-30 border-b border-border bg-surface">
+      <header className="sticky top-0 z-30 border-b-2 border-ink bg-surface">
         <div className="mx-auto flex max-w-overview items-center justify-between gap-3 px-4 py-2 md:px-6">
           <button className="btn-secondary" onClick={saveAndExit}>Save and exit</button>
           <div className="min-w-0 text-center">
-            <p className="truncate font-bold">{view.concept.title}</p>
+            <p className="truncate text-problem">{view.concept.title}</p>
             <p className="text-meta text-ink-muted">Step {pos} of {stages.length}: {STAGE_LABEL[stage]}</p>
           </div>
           <div className="flex items-center gap-2">
@@ -203,8 +205,24 @@ function Workspace() {
             <button className="btn-secondary" onClick={() => setFocus(true)} disabled={paused}>Focus</button>
           </div>
         </div>
+        <ol aria-label="Session steps" className="mx-auto flex max-w-overview flex-wrap gap-2 px-4 pb-3 md:px-6">
+          {stages.map((x: string, i: number) => {
+            const state = i + 1 < pos ? "done" : i + 1 === pos ? "now" : "next";
+            return (
+              <li key={x} aria-current={state === "now" ? "step" : undefined}
+                className={`inline-flex items-center gap-1.5 rounded-pill border-2 px-3 py-1 text-meta transition-colors ${state === "now" ? "border-ink bg-ink text-white" : state === "done" ? "border-ink bg-hl text-ink" : "border-border bg-surface text-ink-muted"}`}>
+                <span aria-hidden>{state === "done" ? "✓" : state === "now" ? "●" : "○"}</span>{STAGE_LABEL[x] || x}
+              </li>
+            );
+          })}
+        </ol>
       </header>
 
+      {notice && (
+        <div className="mx-auto mt-4 max-w-overview px-4 md:px-6">
+          <ErrorBox message={notice}><button className="btn-secondary" onClick={() => setNotice(null)}>Dismiss</button></ErrorBox>
+        </div>
+      )}
       {conflict && (
         <div role="alert" className="mx-auto mt-4 max-w-overview px-4 md:px-6">
           <ErrorBox title="Another session has newer work" message={conflict === "stale" ? "A newer change was saved first. Reload to see it; your local draft stays on this device." : "This session is open on another tab or device. Open it read-only here, or take over (the other copy keeps its draft separately)."}>
@@ -278,6 +296,13 @@ function Workspace() {
       </main>
       <FocusSheet open={focus} onClose={() => setFocus(false)} onPause={saveAndPause} quiet={quiet} setQuiet={setQuiet}
         timerMinutes={sess.config?.timer_minutes ?? null} saving={pausing} />
+      <Dialog open={leaveOpen} title="Leave without syncing?" onClose={() => setLeaveOpen(false)}>
+        <p>This draft is not synced. It stays on this device only.</p>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button className="btn-primary" onClick={() => setLeaveOpen(false)}>Stay and retry</button>
+          <button className="btn-secondary" onClick={() => router.push("/today")}>Leave anyway</button>
+        </div>
+      </Dialog>
     </div>
   );
 }

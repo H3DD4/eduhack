@@ -97,7 +97,7 @@ function GameMap({ unit, subjectId, conceptId, suggested, allFoundations }:
                 className={`node ${nodeClass(p.c.evidence)} ${isCurrent ? "node-current" : ""} ${conceptId === p.c.id ? "ring-4 ring-focus" : ""}`}>
                 {p.c.evidence?.states?.includes("applied_independently") ? "★" : i + 1}
               </Link>
-              <span className="mt-3 rounded-detail bg-surface/90 px-2 text-meta font-bold leading-tight" aria-hidden>{p.c.title}</span>
+              <span className="mt-3 rounded-detail border-2 border-ink bg-surface px-2 text-meta leading-tight" aria-hidden>{p.c.title}</span>
               <span className="text-[0.95rem] tracking-widest text-discovery" aria-hidden>{st.map((on) => (on ? "★" : "☆")).join("")}</span>
             </li>
           );
@@ -202,7 +202,7 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
           <aside aria-labelledby="insp-h" className="h-fit xl:sticky xl:top-20">
             {!conceptId ? (
               <div className="game-card space-y-3 p-5">
-                <Companion message="Tap any level to see what it is about. Nothing is locked — side quests (amber) are optional refreshers." />
+                <Companion message="Tap any level to see what it is about. Nothing is locked — side quests (mint) are optional refreshers." />
                 {data.suggestion && (
                   <div className="rounded-detail bg-help-surface p-3">
                     <p className="text-meta font-bold text-help">{data.suggestion.kind === "side_quest" ? "Suggested side quest" : "Suggested next level"}</p>
@@ -210,6 +210,11 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
                     <Link className="btn-link" href={`/subjects/${subjectId}/roadmap/concepts/${data.suggestion.id}`}>Open it</Link>
                   </div>
                 )}
+                <div className="border-t border-border pt-3">
+                  <Link className="btn-secondary w-full" href={`/subjects/${subjectId}/diagnostic`}>
+                    Find where to start (Adaptive check)
+                  </Link>
+                </div>
               </div>
             ) : (
               <div className="game-card p-5">

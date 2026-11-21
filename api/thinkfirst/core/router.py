@@ -22,11 +22,12 @@ def health():
 def capabilities():
     """What is real vs simulated in this environment (drives 'Demo data' / 'Simulated assessment' labels)."""
     s = get_settings()
+    from thinkfirst.modules.diagnostic import service as diagnostic
     from thinkfirst.modules.rag import service as rag
 
-    return {**llm.capabilities(), "rag": rag.stack(), "demo_mode": s.demo_mode, "job_mode": s.job_mode,
-            "storage": s.storage_backend, "paper_mode": False, "code_sandbox": False, "exams": False,
-            "planner": "review dates only", "notifications": False}
+    return {**llm.capabilities(), "rag": rag.stack(), "diagnostic": diagnostic.stack(), "demo_mode": s.demo_mode,
+            "job_mode": s.job_mode, "storage": s.storage_backend, "paper_mode": False, "code_sandbox": False,
+            "exams": False, "planner": "review dates only", "notifications": False}
 
 
 @router.get("/demo/course-file")

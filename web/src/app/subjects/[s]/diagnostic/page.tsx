@@ -5,7 +5,8 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { SubjectShell } from "@/components/SubjectShell";
-import { api } from "@/lib/api";
+import { MathText } from "@/components/ui";
+import { api, trackEvent } from "@/lib/api";
 
 const CONFIDENCE_LEVELS = [
   { v: 1, label: "1 · Guessing" },
@@ -26,9 +27,18 @@ export default function Diagnostic() {
   const [selectedOption, setSelectedOption] = useState<string>("");
   const [typedAnswer, setTypedAnswer] = useState<string>("");
   const [edits, setEdits] = useState<number>(0);
+  const [focusSwitches, setFocusSwitches] = useState<number>(0);
   const [nudge, setNudge] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const shownAt = useRef<number>(Date.now());
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "hidden") setFocusSwitches((n) => n + 1);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -50,6 +60,7 @@ export default function Diagnostic() {
     setSelectedOption("");
     setTypedAnswer("");
     setEdits(0);
+    setFocusSwitches(0);
     setError(null);
     shownAt.current = Date.now();
   };
@@ -88,6 +99,7 @@ export default function Diagnostic() {
           dont_know: dontKnow,
           duration_ms: durationMs,
           edits,
+          focus_switches: focusSwitches,
         },
       });
       setSession(res);
@@ -112,10 +124,10 @@ export default function Diagnostic() {
 
   return (
     <SubjectShell subjectId={s} crumb="Optional baseline">
-      <section className="card max-w-prose space-y-5" data-screen="C03">
+      <section className="card max-w-prose space-y-5 !p-6 md:!p-8" data-screen="C03">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="text-section">Find where to start</h2>
+            <h2 className="text-section">Find where to <span className="hl">start</span></h2>
             <p className="text-meta text-ink-muted">
               8–12 short questions to map your starting frontier. It’s not a test, and skipping never locks concepts.
             </p>
@@ -148,13 +160,16 @@ export default function Diagnostic() {
 
         {item && session?.status === "active" && (
           <div className="space-y-5 border-t border-stroke pt-4" data-phase="diagnostic-question">
+            <div className="bar" role="progressbar" aria-label="Diagnostic progress" aria-valuemin={0} aria-valuemax={item.max_items} aria-valuenow={item.step_no}>
+              <span style={{ width: `${Math.round((100 * item.step_no) / Math.max(1, item.max_items))}%` }} />
+            </div>
             <div className="flex items-center justify-between text-meta text-ink-muted">
               <span>Question {item.step_no} of up to {item.max_items}</span>
               <span>~{Math.max(1, Math.round((item.remaining_seconds_estimate || 180) / 60))} min remaining</span>
             </div>
 
             {nudge && (
-              <p role="status" className="rounded-control bg-surface-subtle px-3 py-2 text-meta">
+              <p role="status" className="hint-in rounded-control border-2 border-ink bg-surface-subtle px-4 py-3">
                 {nudge}
               </p>
             )}
@@ -166,10 +181,12 @@ export default function Diagnostic() {
                   <button
                     key={c.v}
                     type="button"
-                    onClick={() => setConfidence(c.v)}
-                    className={`rounded-control border px-3 py-1.5 text-meta ${
-                      confidence === c.v ? "border-accent bg-surface-subtle font-semibold" : "border-stroke bg-surface"
-                    }`}
+                    onClick={() => {
+                      setConfidence(c.v);
+                      trackEvent("rated_confidence", { type: "item", id: item.id, skills: item.skills }, {}, { confidence: c.v, phase: "diagnostic" }, s);
+                    }}
+                    aria-pressed={confidence === c.v}
+                    className="chip text-meta"
                   >
                     {c.label}
                   </button>
@@ -178,13 +195,14 @@ export default function Diagnostic() {
             </fieldset>
 
             <div className="space-y-3">
-              <p className="label">2. {item.prompt}</p>
+              <p className="label">2. Your answer</p>
+              <p className="font-mono text-problem"><MathText text={item.prompt} /></p>
               {item.options && item.options.length > 0 && (
                 <div className="space-y-2">
                   {item.options.map((opt: any) => (
                     <label
                       key={opt.id}
-                      className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-control border border-stroke bg-surface px-3 py-2"
+                      className="option"
                     >
                       <input
                         type="radio"
@@ -245,13 +263,13 @@ export default function Diagnostic() {
 
         {session?.status === "completed" && view && (
           <div className="space-y-4 border-t border-stroke pt-4" data-phase="diagnostic-result">
-            <h3 className="text-section">{view.headline}</h3>
-            <div className="space-y-2 rounded-control border border-stroke bg-surface-subtle p-4">
-              <p><strong>Your next frontier:</strong> {view.where_we_start?.map((w: any) => w.title).join(", ")}</p>
-              <p><strong>Strength spotted:</strong> {view.strength?.message}</p>
-              <p><strong>Where to focus first:</strong> {view.real_gap}</p>
-              <p><strong>Confidence check:</strong> {view.calibration_line}</p>
-              <p><strong>First session:</strong> {view.first_session_booked?.slot} on “{view.first_session_booked?.starting_skill?.title}”</p>
+            <h3 className="text-page-compact">{view.headline}</h3>
+            <div className="fade-in space-y-2 rounded-card border-2 border-ink bg-surface-subtle p-5 shadow-hard">
+              <p><span className="text-ink-muted">Your next frontier:</span> {view.where_we_start?.map((w: any) => w.title).join(", ")}</p>
+              <p><span className="text-ink-muted">Strength spotted:</span> {view.strength?.message}</p>
+              <p><span className="text-ink-muted">Where to focus first:</span> {view.real_gap}</p>
+              <p><span className="text-ink-muted">Confidence check:</span> {view.calibration_line}</p>
+              <p><span className="text-ink-muted">First session:</span> {view.first_session_booked?.slot} on “{view.first_session_booked?.starting_skill?.title}”</p>
               <p className="text-meta text-ink-muted">{view.transparency}</p>
             </div>
             <div className="flex flex-wrap gap-3">

@@ -49,7 +49,7 @@ export default function Receipt() {
               <Link className="btn-primary" href={`/subjects/${s}/roadmap${ev.concept_id ? `/concepts/${ev.concept_id}` : ""}`}>Try fresh check</Link>
               {ev.task_id && <button className="btn-secondary" onClick={() => setConfirmDel(true)}>Delete attempt</button>}
             </div>
-            <p className="text-meta text-ink-muted">Challenging an assessment arrives in M3. Flagging never shares your content automatically.</p>
+            <p className="text-meta text-ink-muted">Challenging an assessment is coming soon. Flagging never shares your content automatically.</p>
           </>
         )}
       </div>
