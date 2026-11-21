@@ -139,6 +139,8 @@ def setup_state(subject_id: str, user: User = Depends(current_user), db: Session
     rev = ingestion.proposed_revision(db, user.id, subject_id)
     job_rows = db.scalars(select(jobs.Job).where(jobs.Job.owner_id == user.id, jobs.Job.type == "ingestion.extract")).all()
     topic_job = db.scalar(select(jobs.Job).where(jobs.Job.idempotency_key == f"topic:{subject_id}", jobs.Job.owner_id == user.id))
+    if topic_job is not None and topic_job.status == jobs.FAILED and subject.status == "processing":
+        subject.status = "needs_attention"  # a failed job must never leave the page "building" forever
     return {"subject": workspaces.subject_public(subject), "sources": srcs,
             "topic_job": jobs.job_public(topic_job) if topic_job else None,
             "jobs": [jobs.job_public(j) for j in job_rows if j.payload.get("revision_id")],

@@ -448,7 +448,7 @@ def create_guided_scope(db: Session, owner_id: str, subject_id: str, discipline:
 
 # ---------------- learn any topic directly (no documents required) ----------------
 
-TOPIC_LABEL_TMPL = "AI-generated roadmap for “{topic}” ({provider}). Not from your course — rename or exclude anything."
+TOPIC_LABEL_TMPL = "AI-generated roadmap for “{topic}” ({provider}). Not from your course — edit freely."
 
 
 @llm.register_demo("generate_topic_scope")
@@ -490,8 +490,9 @@ def _topic_scope_job(db: Session, job: jobs.Job) -> dict:
     no = (db.scalar(select(func.max(ConceptGraphRevision.revision_no))
                     .where(ConceptGraphRevision.subject_id == subject_id)) or 0) + 1
     rev = ConceptGraphRevision(owner_id=owner, subject_id=subject_id, revision_no=no, status="proposed", basis="generated",
-                               extraction_label=TOPIC_LABEL_TMPL.format(topic=p["topic"], provider=res.label.split("(")[-1].split(")")[0])
-                               + (f" Grounded in {len(found)} openly licensed source(s) ({'shared library' if g['route'] == 'library' else 'fetched live'})." if found else ""))
+                               extraction_label=(TOPIC_LABEL_TMPL.format(topic=p["topic"][:60], provider=res.label.split("(")[-1].split(")")[0])
+                                                 + (f" Grounded in {len(found)} open source(s) ({'shared library' if g['route'] == 'library' else 'fetched live'})."
+                                                    if found else ""))[:200])
     db.add(rev)
     db.flush()
     pos, seen = 0, set()

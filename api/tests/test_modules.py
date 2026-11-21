@@ -109,3 +109,24 @@ def test_hybrid_prefers_the_students_own_course(student, db_session):
     uid = db_session.query(User).filter(User.email == "student@example.com").one().id
     g = rag.hybrid(db_session, uid, sid, "distributive property every term inside the brackets", fetch_query="Distributive property")
     assert g["route"] == "course" and g["citations"][0]["page"] == 2
+
+
+def test_long_topic_label_fits_postgres_column_and_failed_job_is_reported(student):
+    """Regression: a long topic overflowed extraction_label VARCHAR(200) on Postgres and the UI waited forever."""
+    long_topic = "algebra " + "and expanding brackets with many words " * 6
+    sid = student.post("/api/subjects/topic", json={"topic": long_topic}).json()["subject"]["id"]
+    setup = student.get(f"/api/subjects/{sid}/setup").json()
+    assert setup["proposal"] and len(setup["proposal"]["label"]) <= 200
+
+
+def test_failed_topic_job_moves_subject_out_of_processing(student, monkeypatch):
+    from thinkfirst.modules.ingestion import service as ingestion
+
+    def boom(db, job):
+        raise RuntimeError("simulated failure")
+
+    monkeypatch.setitem(__import__("thinkfirst.core.jobs", fromlist=["_registry"])._registry, "ingestion.topic_scope", boom)
+    sid = student.post("/api/subjects/topic", json={"topic": "algebra basics"}).json()["subject"]["id"]
+    setup = student.get(f"/api/subjects/{sid}/setup").json()
+    assert setup["topic_job"]["status"] == "failed" and setup["subject"]["status"] == "needs_attention"
+    _ = ingestion

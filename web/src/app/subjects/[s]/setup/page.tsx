@@ -33,7 +33,8 @@ export default function Setup() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState<string | null>(null);
-  const processing = data?.sources?.some((x: any) => ["queued", "extracting"].includes(x.status)) || data?.subject?.status === "processing";
+  const processing = data?.sources?.some((x: any) => ["queued", "extracting"].includes(x.status)) || (data?.subject?.status === "processing" && data?.topic_job?.status !== "failed")
+    || ["queued", "running"].includes(data?.topic_job?.status);
   const [customize, setCustomize] = useState(false);
   const topicMode = data?.subject?.origin === "guided_topic" && !customize;
   const startLearning = async () => {
@@ -95,6 +96,9 @@ export default function Setup() {
             )}
             {!processing && !data.proposal && (
               <ErrorBox title="Could not build a roadmap" message={data.topic_job?.result?.error === "AI_NOT_CONFIGURED" ? "No AI service is configured, so only the algebra starter topic is available." : "The AI service did not return a usable roadmap. Try again or rephrase the topic."}>
+                {data.topic_job?.status === "failed" && (
+                  <button className="btn-primary" onClick={async () => { await api(`/jobs/${data.topic_job.id}/retry`, { method: "POST" }); reload(); }}>Try again</button>
+                )}
                 <Link className="btn-secondary" href="/subjects/new">Try another topic</Link>
               </ErrorBox>
             )}
