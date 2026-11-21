@@ -14,7 +14,7 @@ const PHASE: Record<string, string> = {
   needs_attention: "Needs attention", cancelled: "Cancelled", ready: "Ready", excluded: "Excluded", removed: "Removed",
 };
 const CAUSE: Record<string, string> = {
-  UNSUPPORTED_TYPE: "This file type is not supported. Use PDF (with text), PPTX, TXT or MD — or paste the text.",
+  UNSUPPORTED_TYPE: "This file type is not supported. Use PDF (with text), Word .docx, PPTX, TXT or MD — or paste the text.",
   TOO_LARGE: "This file is larger than the limit. Split it or paste the relevant part.",
   ENCRYPTED_FILE: "This PDF is password-protected. Export an unprotected copy.",
   NO_TEXT: "No text found — it may be scanned. OCR arrives later; paste the text or use a guided topic.",
@@ -41,7 +41,7 @@ export default function Setup() {
     setBusy(true);
     try {
       await api(`/subjects/${s}/start`, { method: "POST" });
-      router.push(`/subjects/${s}/roadmap`);
+      router.push(data?.subject?.prior_knowledge ? `/subjects/${s}/start` : `/subjects/${s}/roadmap`);
     } catch (e: any) { setErr(e.message); setBusy(false); }
   };
 
@@ -69,7 +69,7 @@ export default function Setup() {
       await api(`/subjects/${s}/scope/confirm`, { method: "POST", json: {
         graph_revision_id: data.proposal.id,
         edits: Object.entries(edits).map(([concept_id, e]) => ({ concept_id, ...e })) } });
-      router.push(`/subjects/${s}/roadmap`);
+      router.push(data?.subject?.prior_knowledge ? `/subjects/${s}/start` : `/subjects/${s}/roadmap`);
     } catch (e: any) {
       setErr(e.message);
       setBusy(false);
@@ -139,7 +139,7 @@ export default function Setup() {
                   {src.status === "needs_attention" && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button className="btn-secondary" onClick={() => act(src.id, "retry")}>Retry</button>
-                      <label className="btn-secondary cursor-pointer">Replace<input type="file" className="sr-only" accept=".pdf,.pptx,.txt,.md"
+                      <label className="btn-secondary cursor-pointer">Replace<input type="file" className="sr-only" accept=".pdf,.docx,.pptx,.txt,.md"
                         onChange={(e) => e.target.files?.[0] && replace(src.id, e.target.files[0])} /></label>
                       <button className="btn-secondary" onClick={() => act(src.id, "exclude")}>Exclude</button>
                     </div>

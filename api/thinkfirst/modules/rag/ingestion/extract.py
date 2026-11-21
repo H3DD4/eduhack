@@ -17,8 +17,9 @@ SUPPORTED = {
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
     "text/plain": "txt",
     "text/markdown": "md",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
 }
-EXT_KIND = {".pdf": "pdf", ".pptx": "pptx", ".txt": "txt", ".md": "md"}
+EXT_KIND = {".pdf": "pdf", ".pptx": "pptx", ".docx": "docx", ".txt": "txt", ".md": "md", ".markdown": "md"}
 
 
 class ExtractionError(Exception):
@@ -58,6 +59,10 @@ def extract_pages(data: bytes, kind: str, max_pages: int) -> list[str]:
             pages.append("\n".join(texts))
         if len(pages) > max_pages:
             raise ExtractionError("TOO_MANY_PAGES")
+    elif kind == "docx":
+        pages = docx_pages(data)
+        if len(pages) > max_pages:
+            raise ExtractionError("TOO_MANY_PAGES")
     elif kind in ("txt", "md"):
         try:
             text = data.decode("utf-8")
@@ -71,6 +76,63 @@ def extract_pages(data: bytes, kind: str, max_pages: int) -> list[str]:
     pages = [normalize(p) for p in pages]
     if not any(p.strip() for p in pages):
         raise ExtractionError("NO_TEXT")  # scanned PDFs need OCR (Next)
+    return pages
+
+
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
+def docx_pages(data: bytes) -> list[str]:
+    """Word .docx without extra dependencies: read word/document.xml. Paragraphs keep their order; headings become
+    lines of their own; tables become 'cell | cell' rows. Explicit page breaks split pages; otherwise ~3000-char
+    pages (Word does not store layout pages)."""
+    import zipfile
+    from xml.etree import ElementTree
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            root = ElementTree.fromstring(z.read("word/document.xml"))
+    except (zipfile.BadZipFile, KeyError, ElementTree.ParseError) as exc:
+        raise ExtractionError("UNREADABLE_FILE") from exc
+    body = root.find(f"{_W}body")
+    if body is None:
+        raise ExtractionError("UNREADABLE_FILE")
+
+    def para_text(p) -> tuple[str, bool]:
+        out, brk = [], False
+        for node in p.iter():
+            if node.tag == f"{_W}t" and node.text:
+                out.append(node.text)
+            elif node.tag == f"{_W}tab":
+                out.append("\t")
+            elif node.tag == f"{_W}br":
+                if node.get(f"{_W}type") == "page":
+                    brk = True
+                else:
+                    out.append("\n")
+        return "".join(out), brk
+
+    pages, buf, size = [], [], 0
+    for el in body:
+        if el.tag == f"{_W}p":
+            text, brk = para_text(el)
+        elif el.tag == f"{_W}tbl":
+            rows = []
+            for tr in el.iter(f"{_W}tr"):
+                cells = [" ".join(t.text or "" for t in tc.iter(f"{_W}t")).strip() for tc in tr.iter(f"{_W}tc")]
+                rows.append(" | ".join(cells))
+            text, brk = "\n".join(rows), False
+        else:
+            continue
+        if text.strip():
+            buf.append(text)
+            size += len(text)
+        if brk or size > 3000:
+            if buf:
+                pages.append("\n\n".join(buf))
+            buf, size = [], 0
+    if buf:
+        pages.append("\n\n".join(buf))
     return pages
 
 

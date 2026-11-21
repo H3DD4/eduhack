@@ -37,7 +37,12 @@ def ensure_pack(db: Session, owner_id: str, subject_id: str, concept_id: str) ->
 
 @events.subscribe(events.SOURCE_CONFIRMED)
 def _prefetch_first_levels(db: Session, e: events.Event) -> None:
-    """Warm up: prepare study packs for the first two levels as soon as a roadmap is confirmed."""
+    """Warm up: prepare study packs for the first two levels as soon as a roadmap is confirmed (not when the student
+    is about to take a placement test: the packs are written for their measured level afterwards)."""
+    from thinkfirst.platform.workspaces import service as workspaces
+
+    if workspaces.get_subject(db, e.owner_id, e.payload["subject_id"]).prior_knowledge == "some":
+        return
     concepts = [c for c in ingestion.concepts_of(db, e.payload["graph_revision_id"]) if not c.excluded and not c.is_foundation]
     for c in concepts[:2]:
         ensure_pack(db, e.owner_id, e.payload["subject_id"], c.id)
@@ -85,9 +90,14 @@ def _pack_job(db: Session, job: jobs.Job) -> dict:
 
         g = rag.hybrid(db, pack.owner_id, pack.subject_id, f"{concept.title} {concept.objective}", fetch_query=concept.title)
         grounding, sources = g["text"], [c for c in g["citations"] if c.get("kind") == "open"]
+    from thinkfirst.modules.diagnostic import placement
+
+    ctx = placement.learner_context(db, pack.owner_id, pack.subject_id)
     res = llm.run(db, "generate_concept_pack", {
         "concept": {"title": concept.title, "objective": concept.objective, "unit": concept.unit_title},
         "course_excerpt": grounding,
+        "learner": {"level": ctx["level"], "goal": ctx["goal"],
+                    "already_known": concept.title in ctx["known"]},
     }, owner_id=pack.owner_id, purpose="concept_pack")
     if res.status != "ok" or not res.output:
         pack.status, pack.label, pack.provider = "failed", res.label, res.provider

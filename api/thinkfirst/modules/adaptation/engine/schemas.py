@@ -60,6 +60,9 @@ class ConceptSpec(BaseModel):
     order: int = 0
     misconceptions: list[MisconceptionSpec] = []
     is_foundation: bool = False
+    prior: float | None = Field(None, ge=0.0, le=1.0, description=(
+        "Starting P(known) before any practice event, e.g. from a placement test or 'start from scratch'. "
+        "None = BKTParams.prior."))
 
 
 class BKTParams(BaseModel):

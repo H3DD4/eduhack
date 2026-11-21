@@ -127,7 +127,7 @@ REGISTRY: dict[str, PromptTemplate] = {
     ),
     "generate_concept_pack": PromptTemplate(
         id="generate_concept_pack",
-        version="v2",
+        version="v3",
         system=(
             "You write a compact, accurate study pack for ONE concept for a university student. ThinkFirst makes the "
             "student think: lessons are short, practice questions have a single checkable answer, and hints climb "
@@ -140,7 +140,10 @@ REGISTRY: dict[str, PromptTemplate] = {
             "practice questions. answer_kind is 'expression' only when the answer is a single algebraic expression or "
             "number (write it with ^ for powers and * for products, e.g. 3*x + 12); otherwise 'text'. Each hints list has "
             "exactly 5 items: clarify the task, strategy cue, first sub-step, a DIFFERENT worked example, full worked "
-            "solution. Use the student's language. " + UNTRUSTED_NOTE
+            "solution. Adapt to <learner>: level beginner = explain from scratch, define every term before using it, "
+            "intuition first, smaller steps (summary may reach 160 words); intermediate = standard; advanced/expert = "
+            "concise, more conditions, edge cases and harder practice. goal exam = point out what is typically asked and "
+            "common traps. Use the student's language. " + UNTRUSTED_NOTE
         ),
         output_schema={"type": "object", "properties": {
             "lesson": {"type": "object", "properties": {
@@ -181,3 +184,90 @@ REGISTRY: dict[str, PromptTemplate] = {
             "required": ["verdict", "feedback"]},
     ),
 }
+
+_BLOCK = {"type": "object", "properties": {
+    "type": {"type": "string", "enum": ["heading", "paragraph", "bullets", "formula", "definition", "example", "tip", "warning"]},
+    "text": {"type": "string"}, "items": {"type": "array", "items": {"type": "string"}},
+    "pages": {"type": "array", "items": {"type": "integer"}}},
+    "required": ["type", "text"]}
+_SUMMARY_SCHEMA = {"type": "object", "properties": {
+    "title": {"type": "string"},
+    "blocks": {"type": "array", "items": _BLOCK},
+    "key_terms": {"type": "array", "items": {"type": "object", "properties": {
+        "term": {"type": "string"}, "definition": {"type": "string"}}, "required": ["term", "definition"]}},
+    "common_mistakes": {"type": "array", "items": {"type": "string"}},
+    "check_questions": {"type": "array", "items": {"type": "string"}},
+    "covered_pages": {"type": "array", "items": {"type": "integer"}}},
+    "required": ["title", "blocks", "key_terms", "common_mistakes", "check_questions", "covered_pages"]}
+LEVEL_DEPTH = (
+    "Depth follows <learner>.level. beginner: the student starts from zero - define every term before using it, "
+    "intuition first, then the rule, then a step-by-step worked example; explain every symbol; short sentences. "
+    "intermediate: complete and clear, brief definitions, one worked example per method, extra detail on the "
+    "learner's gap concepts. advanced: dense structured recap with every rule, formula, condition and edge case; "
+    "full detail only on gap concepts. expert: compact revision sheet - every result, condition and pitfall, no basic "
+    "intuition. At EVERY level nothing from the source may be dropped: shorter means denser, never incomplete. "
+    "<learner>.known concepts get a quick recap; <learner>.gaps get the fullest explanation. goal exam: add 'tip' "
+    "blocks on what is typically asked and 'warning' blocks on classic traps. goal explore: add real-world "
+    "connections. Use the language of the source. Math in LaTeX between $...$. "
+)
+
+REGISTRY.update({
+    "generate_placement_items": PromptTemplate(
+        id="generate_placement_items",
+        version="v1",
+        system=(
+            "You write a placement test (multiple-choice questions) to find a student's level on a topic. For EACH "
+            "concept in <concepts> write exactly 3 questions: one easy (recall / recognise the definition), one medium "
+            "(apply it to a simple case), one hard (combine, reason about a condition, or a multi-step problem). Each "
+            "question has exactly 4 options: ONE correct option and 3 plausible wrong options; each wrong option is the "
+            "answer a student with a specific misconception would choose - give that misconception as a short "
+            "snake_case code (e.g. sign_error, confuses_mass_and_weight). Options must be mutually exclusive and of "
+            "similar length; never 'all of the above'. Answerable in under 60 seconds without a calculator. Ground the "
+            "questions in <course_excerpt> when it is given (stay inside its scope and notation). Use the language of the "
+            "concepts. " + UNTRUSTED_NOTE
+        ),
+        output_schema={"type": "object", "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {
+            "concept_key": {"type": "string"}, "difficulty": {"type": "string", "enum": ["easy", "medium", "hard"]},
+            "question": {"type": "string"}, "correct": {"type": "string"},
+            "distractors": {"type": "array", "items": {"type": "object", "properties": {
+                "text": {"type": "string"}, "misconception": {"type": "string"}}, "required": ["text", "misconception"]}}},
+            "required": ["concept_key", "difficulty", "question", "correct", "distractors"]}}}, "required": ["items"]},
+    ),
+    "cross_check_items": PromptTemplate(
+        id="cross_check_items",
+        version="v1",
+        system=(
+            "Solve each multiple-choice question independently and pick the single correct option id. If no option is "
+            "correct or more than one is, answer 'none'. Do not explain. " + UNTRUSTED_NOTE
+        ),
+        output_schema={"type": "object", "properties": {"answers": {"type": "array", "items": {"type": "object", "properties": {
+            "qid": {"type": "string"}, "option_id": {"type": "string"}}, "required": ["qid", "option_id"]}}},
+            "required": ["answers"]},
+    ),
+    "summarize_course_section": PromptTemplate(
+        id="summarize_course_section",
+        version="v1",
+        system=(
+            "You write one section of a course summary from the student's OWN course pages in <course_pages>. Respect "
+            "the course: keep its order, headings, notation, definitions, theorems, formulas and examples. NEVER skip "
+            "anything: every heading, definition, rule, formula, example and exercise statement on every page must "
+            "appear (summarised, not copied verbatim). Do not add topics the pages do not contain; if you add a "
+            "clarification that is not in the pages, start it with 'Note:'. Put the page numbers each block comes from in "
+            "its 'pages'. List in covered_pages every page number you summarised - it must contain all the given pages "
+            "that have content. " + LEVEL_DEPTH + UNTRUSTED_NOTE
+        ),
+        output_schema=_SUMMARY_SCHEMA,
+    ),
+    "explain_topic_section": PromptTemplate(
+        id="explain_topic_section",
+        version="v1",
+        system=(
+            "The student has no course file. Write one detailed section of a course summary for the concept in "
+            "<concept>, as a good textbook would: definitions, the main rules or results with their conditions, why they "
+            "hold, a fully worked example, common mistakes and check questions. Stay accurate; when <course_excerpt> "
+            "(openly licensed reference text) is given, stay consistent with it. covered_pages is an empty list. "
+            + LEVEL_DEPTH + UNTRUSTED_NOTE
+        ),
+        output_schema=_SUMMARY_SCHEMA,
+    ),
+})

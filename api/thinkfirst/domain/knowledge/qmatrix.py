@@ -20,6 +20,7 @@ class Item:
     verified: bool = False                       # reference answer checked (math checker, tests or a human)
     generated: bool = False                      # AI-generated
     calibrated: bool = False                     # enough real answers to trust `difficulty`
+    cross_checked: bool = False                  # generated item whose key an independent second pass reproduced
     n_answers: int = 0
     language: str = "en"
     # wrong option id -> misconception code: choosing it is evidence of that misconception, not just "wrong"
@@ -31,10 +32,11 @@ class Item:
 
     @property
     def eligible_for_diagnostic(self) -> bool:
-        """Verified, quick, flagged, and never an uncalibrated generated item (unknown difficulty adds noise)."""
+        """Verified, quick, flagged. An uncalibrated generated item is only allowed once its key was independently
+        cross-checked (the engine still halves its weight because its difficulty is only declared)."""
         if not (self.diagnostic and self.verified and self.skills):
             return False
-        if self.generated and not self.calibrated:
+        if self.generated and not self.calibrated and not self.cross_checked:
             return False
         return self.typical_ms <= MAX_DIAGNOSTIC_MS
 
@@ -83,7 +85,7 @@ class ItemBank:
                 issues.append(QualityIssue("q_matrix", f"item references unknown skills {unknown}", item_id=it.id))
             if it.diagnostic and not it.verified:
                 issues.append(QualityIssue("verified_key", "diagnostic item without a verified reference answer", item_id=it.id))
-            if it.diagnostic and it.generated and not it.calibrated:
+            if it.diagnostic and it.generated and not it.calibrated and not it.cross_checked:
                 issues.append(QualityIssue("generated_uncalibrated",
                                            "generated items stay out of the diagnostic until calibrated", item_id=it.id))
             if it.diagnostic and it.typical_ms > MAX_DIAGNOSTIC_MS:

@@ -24,17 +24,32 @@ export async function signUpFresh(page: Page) {
   return email;
 }
 
-/** C01 -> C02 -> confirm -> W01 with the fixture PDF; returns subject URL base. */
+/** Start wizard (C01): exam -> topic -> my course files -> start from scratch -> build. Ends on C02. */
+export async function wizardWithCourse(page: Page, addFiles: () => Promise<void>, topic = "MATH 101") {
+  await expect(page.locator("[data-screen=C01]")).toBeVisible();
+  await page.getByRole("button", { name: "I'm preparing for an exam" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByLabel("Topic", { exact: true }).fill(topic);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Yes — use my course" }).click();
+  await addFiles();
+  await page.getByLabel(/I may use these materials/).check();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "No — start from scratch" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Build my learning path" }).click();
+  await expect(page.locator("[data-screen=C02]")).toBeVisible();
+}
+
+/** C01 wizard -> C02 -> confirm -> J01 (my path) -> W01 with the fixture PDF; returns subject URL base. */
 export async function createSubjectFromFixture(page: Page) {
   await page.goto("/subjects/new");
-  await page.locator("#files").setInputFiles(FIXTURE);
-  await page.getByLabel("Subject name").fill("MATH 101");
-  await page.getByLabel(/I may use these materials/).check();
-  await page.getByRole("button", { name: "Create subject" }).click();
-  await expect(page.getByRole("button", { name: "Confirm scope" })).toBeVisible();
+  await wizardWithCourse(page, () => page.locator("#files").setInputFiles(FIXTURE));
   await page.getByRole("button", { name: "Confirm scope" }).click();
-  await expect(page).toHaveURL(/\/roadmap$/);
-  return page.url().replace(/\/roadmap$/, "");
+  await expect(page).toHaveURL(/\/start$/);
+  const base = page.url().replace(/\/start$/, "");
+  await page.goto(`${base}/roadmap`);
+  return base;
 }
 
 /** From W01: start the distributive-property session and reach the given stage. */

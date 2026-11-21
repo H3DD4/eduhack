@@ -246,3 +246,15 @@ Below 20% success after ≥ 10 uses → **rewrite**.
 Privacy: per-student data stays private. Only counts per question and per hint are shared, with no student IDs.
 Generated AI questions differ per student, so their statistics mainly accumulate for deterministic questions
 (course exercises, the algebra bank). That's honest: shared statistics need shared questions.
+
+## 12. Starting from a measured level (`ConceptSpec.prior`)
+
+A concept may carry `prior` (0–1): the probability it is already known **before any practice event**. The app sets it from
+the start wizard: the placement test's mastery estimate per concept (clamped 0.02–0.9), or 0.05 for "start from scratch".
+`None` keeps `BKTParams.prior` (0.10), so older inputs behave exactly as before. Effects:
+
+* BKT starts from that value, so the first practice question already targets `0.2 + 0.6·prior` (a strong student gets
+  hard questions immediately; a beginner gets easy ones);
+* with no practice yet, `level` is 4 (Proficient) when prior ≥ 0.80 and 3 (Developing) when prior ≥ 0.60, otherwise 0;
+* the frontier policy skips concepts the test showed as known and starts on the first real gap;
+* `reasons` records "starting P(known) … from the placement test / start-from-scratch choice".

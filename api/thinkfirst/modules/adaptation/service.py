@@ -119,8 +119,11 @@ TAXONOMY = {  # closed misconception lists per concept family ("bug library"); "
 
 
 def concept_specs(db: Session, owner_id: str, subject_id: str) -> list[dict]:
+    from thinkfirst.modules.diagnostic import placement
+
     concepts = ingestion.active_concepts(db, owner_id, subject_id)
     by_key = {c.key: c for c in concepts}
+    priors = placement.concept_priors(db, owner_id, subject_id)  # placement test / start from scratch
     out = []
     for c in concepts:
         foundation = next((by_key[k].id for k in c.prerequisites if k in by_key and by_key[k].is_foundation), None)
@@ -128,7 +131,8 @@ def concept_specs(db: Session, owner_id: str, subject_id: str) -> list[dict]:
                for fam, items in TAXONOMY.items() if fam in c.title.lower() for mid, label in items]
         mis.append({"id": "other", "label": "Other error (AI-detected, not yet classified)"})
         out.append({"concept_id": c.id, "prerequisites": [by_key[k].id for k in c.prerequisites if k in by_key],
-                    "order": c.position, "is_foundation": c.is_foundation, "misconceptions": mis})
+                    "order": c.position, "is_foundation": c.is_foundation, "misconceptions": mis,
+                    "prior": priors.get(c.id)})
     return out
 
 

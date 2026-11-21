@@ -7,7 +7,9 @@ import { AppShell } from "./AppShell";
 import { ErrorBox, NotAvailable } from "./ui";
 
 const TABS = [
+  { key: "start", label: "My path" },
   { key: "roadmap", label: "Roadmap" },
+  { key: "summary", label: "Summary" },
   { key: "practice", label: "Practice" },
   { key: "exams", label: "Exams" },
   { key: "resources", label: "Resources" },
@@ -21,7 +23,7 @@ export function SubjectShell({ subjectId, children, action, crumb }:
   const { data, error } = useApi<{ subject: any }>(`/subjects/${subjectId}`);
   const [more, setMore] = useState(false);
   const base = `/subjects/${subjectId}`;
-  const active = TABS.find((t) => path.startsWith(`${base}/${t.key}`))?.key ?? "roadmap";
+  const active = TABS.find((t) => path.startsWith(`${base}/${t.key}`))?.key ?? (path.includes("/diagnostic") ? "start" : "roadmap");
   const name = data?.subject?.name ?? "Subject";
   return (
     <AppShell crumbs={[{ href: "/subjects", label: "Subjects" }, { href: `${base}/roadmap`, label: name }, ...(crumb ? [{ label: crumb }] : [])]}>
@@ -47,7 +49,7 @@ export function SubjectShell({ subjectId, children, action, crumb }:
               })}
               <li className="relative md:hidden">
                 <button aria-expanded={more} onClick={() => setMore((m) => !m)}
-                  className={`flex min-h-[44px] items-center rounded-pill border-2 px-4 ${["resources", "progress"].includes(active) ? "border-ink bg-ink text-white" : "border-border bg-surface text-ink"}`}>
+                  className={`flex min-h-[44px] items-center rounded-pill border-2 px-4 ${TABS.slice(3).some((t) => t.key === active) ? "border-ink bg-ink text-white" : "border-border bg-surface text-ink"}`}>
                   More
                 </button>
                 {more && (

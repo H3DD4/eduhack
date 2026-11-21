@@ -4,6 +4,9 @@
 // while keeping "Skip and open the roadmap" always available (records insufficient evidence, never zero ability).
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { SpeakButton } from "@/components/avatar/AvatarSpeakerContext";
+import { TeacherAvatar } from "@/components/avatar/TeacherAvatar";
+import { LevelReport } from "@/components/LevelReport";
 import { SubjectShell } from "@/components/SubjectShell";
 import { MathText } from "@/components/ui";
 import { api, trackEvent } from "@/lib/api";
@@ -31,6 +34,18 @@ export default function Diagnostic() {
   const [nudge, setNudge] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const shownAt = useRef<number>(Date.now());
+  // Start-wizard subjects: placement state (AI questions being written?) + the level report once finished.
+  const [lvl, setLvl] = useState<any>(null);
+  const loadLevel = () => api(`/subjects/${s}/level`).then(setLvl).catch(() => undefined);
+  const wizard = lvl && lvl.placement.state !== "not_needed";
+  const preparing = lvl?.placement.state === "preparing";
+  useEffect(() => { loadLevel(); }, [s]);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!preparing) return;
+    const id = setInterval(loadLevel, 2000);
+    return () => clearInterval(id);
+  }, [preparing]);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (session?.status === "completed") loadLevel(); }, [session?.status]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onVis = () => {
@@ -114,6 +129,11 @@ export default function Diagnostic() {
 
   const handleSkip = async () => {
     setBusy(true);
+    if (wizard) {  // "skip the level test" = start from scratch as a beginner
+      await api(`/subjects/${s}/intent`, { method: "PATCH", json: { prior_knowledge: "none" } });
+      router.push(`/subjects/${s}/start`);
+      return;
+    }
     await api(`/subjects/${s}/diagnostic/skip`, { method: "POST" });
     router.push(`/subjects/${s}/roadmap`);
   };
@@ -123,25 +143,37 @@ export default function Diagnostic() {
   const view = profile?.student_view;
 
   return (
-    <SubjectShell subjectId={s} crumb="Optional baseline">
+    <SubjectShell subjectId={s} crumb={wizard ? "Level test" : "Optional baseline"}>
       <section className="card max-w-prose space-y-5 !p-6 md:!p-8" data-screen="C03">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="text-section">Find where to <span className="hl">start</span></h2>
+            <h2 className="text-section">{wizard ? <>Find your <span className="hl">level</span></> : <>Find where to <span className="hl">start</span></>}</h2>
             <p className="text-meta text-ink-muted">
-              8–12 short questions to map your starting frontier. It’s not a test, and skipping never locks concepts.
+              {wizard
+                ? "5–12 multiple-choice questions, easy first, then adapted to your answers. No help; “I don't know” is always fine."
+                : "8–12 short questions to map your starting frontier. It’s not a test, and skipping never locks concepts."}
             </p>
+            {wizard && lvl.placement.uses_ai_questions && (
+              <p className="text-meta text-ink-muted">{lvl.placement.verified_items} questions written for this roadmap and double-checked by an independent AI pass.</p>
+            )}
           </div>
           {ks && (
             <span className="badge">
-              {ks.skills?.length || 0} skills · {ks.item_count || 0} calibrated items
+              {ks.skills?.length || 0} skills · {ks.item_count || 0} {wizard ? "questions" : "calibrated items"}
             </span>
           )}
         </div>
 
         {loading && <p className="text-meta text-ink-muted">Loading knowledge space…</p>}
 
-        {!loading && !session && (
+        {preparing && (
+          <div className="hero p-6" aria-busy="true"><div className="relative z-10 space-y-1">
+            <p className="text-section !text-[1.25rem]">Writing your test questions…</p>
+            <p className="muted">Three questions per concept (easy, medium, hard), each checked by a second, independent AI pass. Usually under a minute.</p>
+          </div></div>
+        )}
+
+        {!loading && !session && !preparing && (
           <div className="space-y-4">
             <p>
               We start with an easy question, adapt along the prerequisite graph, and highlight the exact concept
@@ -149,10 +181,10 @@ export default function Diagnostic() {
             </p>
             <div className="flex flex-wrap gap-3">
               <button className="btn-primary" disabled={busy} onClick={() => handleStart(false)}>
-                Start adaptive check (~3 min)
+                {wizard ? "Start the level test (~5 min)" : "Start adaptive check (~3 min)"}
               </button>
               <button className="btn-secondary" disabled={busy} onClick={handleSkip}>
-                Skip and open the roadmap
+                {wizard ? "Skip — start from scratch" : "Skip and open the roadmap"}
               </button>
             </div>
           </div>
@@ -195,7 +227,10 @@ export default function Diagnostic() {
             </fieldset>
 
             <div className="space-y-3">
-              <p className="label">2. Your answer</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="label !mb-0">2. Your answer</p>
+                <SpeakButton text={item.prompt} title={`Question ${item.step_no}`} subjectId={s} label="Speak question" />
+              </div>
               <p className="font-mono text-problem"><MathText text={item.prompt} /></p>
               {item.options && item.options.length > 0 && (
                 <div className="space-y-2">
@@ -255,7 +290,7 @@ export default function Diagnostic() {
                 I don&apos;t know yet
               </button>
               <button className="btn-link ml-auto" disabled={busy} onClick={handleSkip}>
-                Skip and open the roadmap
+                {wizard ? "Stop — start from scratch" : "Skip and open the roadmap"}
               </button>
             </div>
           </div>
@@ -263,7 +298,22 @@ export default function Diagnostic() {
 
         {session?.status === "completed" && view && (
           <div className="space-y-4 border-t border-stroke pt-4" data-phase="diagnostic-result">
-            <h3 className="text-page-compact">{view.headline}</h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-page-compact">{view.headline}</h3>
+              <SpeakButton
+                text={`${view.headline}. Your next frontier: ${view.where_we_start?.map((w: any) => w.title).join(", ")}. ${view.strength?.message || ""} ${view.real_gap || ""} ${view.calibration_line || ""} First session booked: ${view.first_session_booked?.slot} on ${view.first_session_booked?.starting_skill?.title}. ${view.transparency || ""}`}
+                title="Diagnostic profile"
+                subjectId={s}
+                label="Speak summary"
+              />
+            </div>
+            <TeacherAvatar
+              text={`${view.headline}! [wave] Your starting frontier is ${view.where_we_start?.map((w: any) => w.title).join(", ")}. [point] ${view.strength?.message || ""} [happy] ${view.real_gap || ""} [encouraging] ${view.calibration_line || ""} [nod] Your first session is booked for ${view.first_session_booked?.slot}.`}
+              hint={view.where_we_start?.[0]?.title || "algebra"}
+              title="Diagnostic result"
+              compact
+              stageHeight={250}
+            />
             <div className="fade-in space-y-2 rounded-card border-2 border-ink bg-surface-subtle p-5 shadow-hard">
               <p><span className="text-ink-muted">Your next frontier:</span> {view.where_we_start?.map((w: any) => w.title).join(", ")}</p>
               <p><span className="text-ink-muted">Strength spotted:</span> {view.strength?.message}</p>
@@ -272,8 +322,14 @@ export default function Diagnostic() {
               <p><span className="text-ink-muted">First session:</span> {view.first_session_booked?.slot} on “{view.first_session_booked?.starting_skill?.title}”</p>
               <p className="text-meta text-ink-muted">{view.transparency}</p>
             </div>
+            {wizard && lvl?.report?.available && <LevelReport report={lvl.report} />}
             <div className="flex flex-wrap gap-3">
-              <button className="btn-primary" onClick={() => router.push(`/subjects/${s}/roadmap`)}>
+              {wizard && (
+                <button className="btn-primary" onClick={() => router.push(`/subjects/${s}/start`)}>
+                  Continue: my summary
+                </button>
+              )}
+              <button className={wizard ? "btn-secondary" : "btn-primary"} onClick={() => router.push(`/subjects/${s}/roadmap`)}>
                 Open my calibrated roadmap
               </button>
               <button className="btn-secondary" disabled={busy} onClick={() => handleStart(true)}>

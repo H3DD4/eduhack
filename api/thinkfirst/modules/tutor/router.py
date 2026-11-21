@@ -205,3 +205,35 @@ def complete(session_id: str, user: User = Depends(current_user), db: Session = 
 @router.get("/today")
 def today(user: User = Depends(current_user), db: Session = Depends(get_db)):
     return service.today(db, user.id)
+
+
+# ---- course summary (level-adapted "résumé"; modules/tutor/summary.py)
+
+class SummaryIn(BaseModel):
+    regenerate: bool = False
+
+
+@router.get("/subjects/{subject_id}/summary")
+def get_summary(subject_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from thinkfirst.modules.tutor import summary
+    from thinkfirst.platform.workspaces import service as workspaces
+
+    workspaces.get_subject(db, user.id, subject_id)
+    return summary.public(db, user.id, subject_id)
+
+
+@router.post("/subjects/{subject_id}/summary")
+def create_summary(subject_id: str, body: SummaryIn | None = None, user: User = Depends(current_user),
+                   db: Session = Depends(get_db)):
+    from thinkfirst.modules.tutor import summary
+
+    summary.ensure(db, user.id, subject_id, regenerate=bool(body and body.regenerate))
+    return summary.public(db, user.id, subject_id)
+
+
+@router.post("/summary-sections/{section_id}/retry")
+def retry_summary_section(section_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from thinkfirst.modules.tutor import summary
+
+    sec = summary.retry_section(db, user.id, section_id)
+    return {"id": sec.id, "status": sec.status}

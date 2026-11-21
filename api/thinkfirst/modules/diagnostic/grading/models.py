@@ -90,6 +90,9 @@ class DiagnosticItemRow(Base, OwnedMixin, TimestampMixin):
     n_answers: Mapped[int] = mapped_column(Integer, default=0)
     language: Mapped[str] = mapped_column(String(8), default="en")
     source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # placement items written by the AI: declared difficulty + whether an independent second pass agreed on the key
+    difficulty_label: Mapped[str | None] = mapped_column(String(8), nullable=True)  # easy | medium | hard
+    cross_checked: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class DiagnosticSessionRow(Base, OwnedMixin, TimestampMixin):

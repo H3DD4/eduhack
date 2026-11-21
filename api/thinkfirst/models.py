@@ -7,6 +7,7 @@ from thinkfirst.data.student_profile import models as _lm  # noqa: F401
 from thinkfirst.data.student_profile import service as _lm_service  # noqa: F401  (event subscribers)
 from thinkfirst.modules.adaptation import models as _adaptation  # noqa: F401
 from thinkfirst.modules.adaptation import service as _adaptation_service  # noqa: F401  (event subscribers)
+from thinkfirst.modules.diagnostic import placement as _placement  # noqa: F401  (job handler + subscriber)
 from thinkfirst.modules.diagnostic import service as _diagnostic_service  # noqa: F401  (event subscribers)
 from thinkfirst.modules.diagnostic.grading import models as _assessment_models  # noqa: F401
 from thinkfirst.modules.diagnostic.grading import service as _assessment_service  # noqa: F401  (event subscriber)
@@ -17,6 +18,7 @@ from thinkfirst.modules.rag.library import models as _kl  # noqa: F401
 from thinkfirst.modules.tutor import models as _tutor  # noqa: F401
 from thinkfirst.modules.tutor import packs as _packs  # noqa: F401  (job handler)
 from thinkfirst.modules.tutor import service as _tutor_service  # noqa: F401  (job handlers)
+from thinkfirst.modules.tutor import summary as _summary  # noqa: F401  (job handler)
 from thinkfirst.modules.tutor.explain_back import models as _eb  # noqa: F401
 from thinkfirst.modules.tutor.explain_back import service as _eb_service  # noqa: F401  (job handler)
 from thinkfirst.modules.tutor.llm import models as _llm  # noqa: F401

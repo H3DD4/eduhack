@@ -3,7 +3,6 @@
 // licensed sources; the student confirms it with one click on C02.
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
-import { api } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 
 export function TopicLauncher({ dark = false, autoFocus = false }: { dark?: boolean; autoFocus?: boolean }) {
@@ -13,17 +12,12 @@ export function TopicLauncher({ dark = false, autoFocus = false }: { dark?: bool
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // The start wizard asks the remaining questions (exam or new, course files, test my level or start from scratch).
   const go = async (t: string) => {
     if (!t.trim()) return;
     setBusy(true);
     setErr(null);
-    try {
-      const r = await api("/subjects/topic", { method: "POST", json: { topic: t.trim() }, retries: 0 });
-      router.push(`/subjects/${r.subject.id}/setup`);
-    } catch (e: any) {
-      setErr(e.message);
-      setBusy(false);
-    }
+    router.push(`/subjects/new?topic=${encodeURIComponent(t.trim())}`);
   };
   const submit = (e: FormEvent) => { e.preventDefault(); go(topic); };
 

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
+import { AvatarSpeakerProvider } from "./avatar/AvatarSpeakerContext";
 import { CommandPalette } from "./CommandPalette";
 import { Logo } from "./Logo";
 
@@ -11,7 +12,7 @@ type Caps = { simulated: boolean; label: string; stt_simulated: boolean; audio_p
 const Ctx = createContext<{ me: Me | null; caps: Caps | null; refreshMe: () => Promise<void> }>({ me: null, caps: null, refreshMe: async () => {} });
 export const useMe = () => useContext(Ctx);
 
-function Icon({ name }: { name: "today" | "subjects" | "planner" | "progress" }) {
+function Icon({ name }: { name: "today" | "subjects" | "planner" | "progress" | "teachers" }) {
   const p = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
@@ -19,6 +20,7 @@ function Icon({ name }: { name: "today" | "subjects" | "planner" | "progress" })
       {name === "subjects" && <><path d="M4 5h6a2 2 0 0 1 2 2v12a2 2 0 0 0-2-2H4z" {...p} /><path d="M20 5h-6a2 2 0 0 0-2 2v12a2 2 0 0 1 2-2h6z" {...p} /></>}
       {name === "planner" && <><rect x="3" y="5" width="18" height="16" rx="3" {...p} /><path d="M3 10h18M8 3v4M16 3v4" {...p} /></>}
       {name === "progress" && <><path d="M4 19V5M4 19h16" {...p} /><path d="M8 15l4-4 3 3 5-6" {...p} /></>}
+      {name === "teachers" && <><circle cx="12" cy="8" r="4" {...p} /><path d="M5 20a7 7 0 0 1 14 0" {...p} /></>}
     </svg>
   );
 }
@@ -28,6 +30,7 @@ const GLOBAL = [
   { href: "/subjects", label: "Subjects", icon: "subjects" as const },
   { href: "/planner", label: "Planner", icon: "planner" as const },
   { href: "/progress", label: "Progress", icon: "progress" as const },
+  { href: "/teachers", label: "3D Teachers", icon: "teachers" as const },
 ];
 
 /** Hook: close a popover on outside click or Escape. */
@@ -103,6 +106,7 @@ export function AppShell({ children, crumbs = [], focused = false, requireSetup 
 
   return (
     <Ctx.Provider value={{ me, caps, refreshMe }}>
+      <AvatarSpeakerProvider>
       <a href="#main" className="skip-link btn-secondary">Skip to content</a>
       {!focused && (
         <header className={`sticky top-0 z-30 px-3 pt-3 transition-[padding] duration-200 md:px-6 ${scrolled ? "md:pt-2" : "md:pt-5"}`}>
@@ -121,7 +125,8 @@ export function AppShell({ children, crumbs = [], focused = false, requireSetup 
                 <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M20 20l-4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
                 Jump to… <span className="kbd">Ctrl K</span>
               </button>
-              <Link href="/subjects/new" className="btn-primary hidden !min-h-[42px] !px-4 !py-1 sm:inline-flex">+ Learn something</Link>
+              {/* wrapper: .btn-primary sets display itself, which overrode `hidden` and overflowed 320px screens */}
+              <span className="hidden sm:inline-flex"><Link href="/subjects/new" className="btn-primary !min-h-[42px] !px-4 !py-1">+ Learn something</Link></span>
               <div ref={bellRef} className="relative">
                 <button className="btn-secondary !min-h-[42px] !rounded-pill !px-3" aria-expanded={bell} aria-label="Notifications" onClick={() => setBell((b) => !b)}>
                   <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z M10 20a2 2 0 0 0 4 0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" /></svg>
@@ -170,7 +175,7 @@ export function AppShell({ children, crumbs = [], focused = false, requireSetup 
       {!focused && (
         <nav aria-label="Main" className="fixed inset-x-3 bottom-3 z-30 rounded-[22px] border-2 border-ink bg-surface pb-[env(safe-area-inset-bottom)] shadow-hard md:hidden">
           <ul className="grid h-16 grid-cols-4">
-            {GLOBAL.map((g) => {
+            {GLOBAL.slice(0, 4).map((g) => {
               const active = path.startsWith(g.href);
               return (
                 <li key={g.href} className="p-1">
@@ -185,6 +190,7 @@ export function AppShell({ children, crumbs = [], focused = false, requireSetup 
         </nav>
       )}
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
+      </AvatarSpeakerProvider>
     </Ctx.Provider>
   );
 }

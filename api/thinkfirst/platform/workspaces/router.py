@@ -65,6 +65,79 @@ async def create_subject(name: str = Form(...), role: str = Form("course"), righ
     return {"subject": workspaces.subject_public(subject)}
 
 
+GOALS = {"exam", "explore"}
+PRIOR = {"some", "none"}
+
+
+@router.post("/subjects/start")
+async def start_wizard(topic: str = Form(...), goal: str = Form("explore"), prior_knowledge: str = Form("none"),
+                       exam_date: str = Form(""), rights_ack: bool = Form(False), paste_text: str = Form(""),
+                       files: list[UploadFile] = File(default=[]), user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """Start wizard: why (exam / explore) + what (topic) + material (files / pasted text / none) + prior knowledge
+    ("some" = placement test, "none" = start from scratch). With material the roadmap comes from the files; without,
+    it is generated for the topic from openly licensed sources."""
+    from datetime import date as _date
+
+    if goal not in GOALS:
+        raise ValidationFailed("Choose exam preparation or learning something new.", field="goal")
+    if prior_knowledge not in PRIOR:
+        raise ValidationFailed("Say whether you already know some of this topic.", field="prior_knowledge")
+    topic = (topic or "").strip()
+    if len(topic) < 2:
+        raise ValidationFailed("Type what you want to learn.", field="topic")
+    when = None
+    if goal == "exam" and exam_date.strip():
+        try:
+            when = _date.fromisoformat(exam_date.strip())
+        except ValueError as exc:
+            raise ValidationFailed("Use a valid exam date.", field="exam_date") from exc
+    files = [f for f in files if f.filename]
+    s_limits = get_settings()
+    if len(files) > s_limits.max_files_per_batch:
+        raise ValidationFailed(f"Choose up to {s_limits.max_files_per_batch} files at a time.", field="files")
+    has_material = bool(files or paste_text.strip())
+    if has_material and not rights_ack:
+        raise ValidationFailed("Confirm you may use these materials for your own study.", field="rights_ack")
+    subject = workspaces.create_subject(db, user.id, topic, origin="upload" if has_material else "guided_topic",
+                                        goal=goal, exam_date=when)
+    subject.prior_knowledge = prior_knowledge
+    if has_material:
+        for f in files:
+            data = await f.read()
+            ingestion.add_source(db, user.id, subject.id, f.filename or "file", f.content_type or "", data, "course", rights_ack)
+        if paste_text.strip():
+            ingestion.add_source(db, user.id, subject.id, "Pasted notes.txt", "text/plain", paste_text.encode(), "course", rights_ack)
+    else:
+        ingestion.start_topic_scope(db, user.id, subject.id, topic, "university")
+    return {"subject": workspaces.subject_public(workspaces.get_subject(db, user.id, subject.id))}
+
+
+class IntentIn(BaseModel):
+    prior_knowledge: str | None = None
+    goal: str | None = None
+
+
+@router.patch("/subjects/{subject_id}/intent")
+def update_intent(subject_id: str, body: IntentIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Change your mind: 'actually, test my level' or 'skip the test, start from scratch'."""
+    from thinkfirst.modules.diagnostic import placement
+
+    subject = workspaces.get_subject(db, user.id, subject_id)
+    if body.prior_knowledge is not None:
+        if body.prior_knowledge not in PRIOR:
+            raise ValidationFailed("Unknown choice.", field="prior_knowledge")
+        subject.prior_knowledge = body.prior_knowledge
+        if body.prior_knowledge == "some" and subject.status == "ready":
+            placement.start_generation(db, user.id, subject_id)
+    if body.goal is not None:
+        if body.goal not in GOALS:
+            raise ValidationFailed("Unknown goal.", field="goal")
+        subject.goal = body.goal
+    db.flush()
+    return {"subject": workspaces.subject_public(subject)}
+
+
 class GuidedIn(BaseModel):
     name: str = "Guided topic"
     discipline: str

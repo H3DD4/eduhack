@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createSubjectFromFixture, passPractice, signUpFresh, startDistributive, typedExplanation } from "./helpers";
+import { createSubjectFromFixture, FIXTURE, passPractice, signUpFresh, startDistributive, typedExplanation } from "./helpers";
 
 /* Acceptance tests from audio_accessibility_and_states.md that apply to M0–M2. */
 
@@ -109,4 +109,40 @@ test("keyboard-only sign-in with skip link and visible focus; 320px reflow witho
     expect(overflow, url).toBeLessThanOrEqual(0);
   }
   await expect(page.getByRole("navigation", { name: "Main" }).last()).toBeVisible(); // mobile bottom bar
+});
+
+test("start wizard 'test my level': placement test -> level report with metrics -> my path -> level-adapted summary", async ({ page }) => {
+  await signUpFresh(page);
+  await page.goto("/subjects/new");
+  await expect(page.locator("[data-screen=C01]")).toBeVisible();
+  await page.getByRole("button", { name: "I want to learn something new" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByLabel("Topic", { exact: true }).fill("Algebra");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Yes — use my course" }).click();
+  await page.locator("#files").setInputFiles(FIXTURE);
+  await page.getByLabel(/I may use these materials/).check();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Yes — test my level" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByText("Level test first, then everything adapts to your level")).toBeVisible();
+  await page.getByRole("button", { name: "Build my learning path" }).click();
+  await page.getByRole("button", { name: "Confirm scope" }).click();
+
+  await expect(page.locator("[data-screen=J01]")).toBeVisible();
+  await expect(page.locator("[data-step=level]")).toHaveAttribute("data-state", "current");
+  await expect(page.locator("[data-step=summary]")).toHaveAttribute("data-state", "todo");
+  await page.getByRole("button", { name: "Take the level test" }).first().click();
+  await page.getByRole("button", { name: /Start the level test/ }).click();
+  for (let i = 0; i < 14; i++) {
+    const idk = page.getByRole("button", { name: "I don't know yet" });
+    if (!(await idk.isVisible().catch(() => false))) break;
+    await idk.click();
+    await page.waitForLoadState("networkidle");
+  }
+  await expect(page.getByTestId("level-label")).toHaveText("Beginner");
+  await expect(page.getByText(/Level score/)).toBeVisible();
+  await page.getByRole("button", { name: "Continue: my summary" }).click();
+  await expect(page.locator("[data-step=level]")).toHaveAttribute("data-state", "done");
+  await expect(page.locator("[data-step=summary]")).toHaveAttribute("data-state", "done");
 });

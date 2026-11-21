@@ -36,6 +36,10 @@ Rules for everyone:
 **Inputs:** an answer + confidence (1–5) + behavioral timings, or a session task. **Outputs:** `answer.graded`, `diagnostic.completed` (initial profile), `items.ready`, `misconception.detected`.
 **Tests:** `tests/test_domain_diagnostic.py`, `tests/test_diagnostic_architecture.py`, `tests/test_policy_unit.py`, `tests/test_modules.py`.
 
+**Placement test** (`placement.py`, start wizard "test my level"): AI writes 3 MCQs per concept, a second independent pass
+cross-checks the keys, verified items run in the adaptive engine; `report()` gives the level (beginner → expert) and the
+metrics; `concept_priors()` seeds the learner engine. `GET /subjects/{s}/level`. **Tests:** `tests/test_learning_path.py`.
+
 ## 2. adaptation — "what next?" (the learner engine)
 | File | What it does |
 |---|---|
@@ -45,6 +49,8 @@ Rules for everyone:
 | `router.py` | `GET /subjects/{s}/learner-state`, `GET /quality`, `POST /engine/fold|recommend|evaluate|select|quality`, `GET /engine/schema` |
 **Reads:** `data/memory` (events, history, `behavior_indicators`) and `data/student_profile` (`skill_mastery`, `initial_profiles`). **Publishes:** `plan.updated`.
 **Tests:** `tests/test_engine.py`, `tests/test_engine_items.py`, `tests/test_item_selection_app.py`, `tests/test_modules.py`, `tests/test_diagnostic_architecture.py`.
+
+**Learning path** (`journey.py`): `GET /subjects/{s}/journey` — wizard choices + roadmap → level → summary → learn, one next action.
 
 ## 3. tutor — "teach, help, check"
 | File | What it does |
@@ -58,6 +64,10 @@ Rules for everyone:
 | `llm/` | **The only door to AI models**: Groq → Gemini fallback with circuit breaker, versioned prompts (`prompts.py`), metadata-only logs |
 | `explain_back/` | Voice: upload → speech-to-text → student corrects the text → only then graded; audio deleted after confirmation |
 **Tests:** `tests/test_demo_flow_api.py`, `tests/test_policies_api.py`.
+
+**Course summary** (`summary.py`): level-adapted résumé; course mode follows the files page by page with checked
+coverage (missing pages reported), topic mode one section per concept. `GET/POST /subjects/{s}/summary`,
+`POST /summary-sections/{id}/retry`.
 
 ## 4. rag — "what do we teach from?"
 | File | What it does |

@@ -2,6 +2,7 @@
 
 Per student (uses their own data):
   GET  /api/subjects/{s}/learner-state     engine state (levels, retention, misconceptions) + recommendation
+  GET  /api/subjects/{s}/journey           learning path: wizard choices + roadmap -> level -> summary -> learn
 Stateless engine (JSON in → JSON out, no database; for teammates, other services, notebooks):
   GET  /api/engine/schema                  JSON Schema of every input/output
   POST /api/engine/fold | /recommend | /evaluate | /select | /quality
@@ -33,6 +34,14 @@ def learner_state(subject_id: str, user: User = Depends(current_user), db: Sessi
     titles = {c.id: c.title for c in ingestion.active_concepts(db, user.id, subject_id)}
     return {"state": adaptation.learner_state(db, user.id, subject_id), "titles": titles,
             "recommendation": adaptation.recommend(db, user.id, subject_id)}
+
+
+@router.get("/subjects/{subject_id}/journey")
+def journey(subject_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """'Your learning path': wizard choices + roadmap -> level -> summary -> learn, with one next action."""
+    from thinkfirst.modules.adaptation import journey as path
+
+    return path.journey(db, user.id, subject_id)
 
 
 @router.get("/quality")

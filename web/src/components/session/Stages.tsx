@@ -2,15 +2,23 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, newKey } from "@/lib/api";
+import { SpeakButton } from "../avatar/AvatarSpeakerContext";
+import { TeacherAvatar } from "../avatar/TeacherAvatar";
 import { Dialog, ErrorBox, LiveRegion, MathText, OriginLabel } from "../ui";
 import { RubricFeedback } from "./RubricFeedback";
 
 /* ---------- recall (UC11 step 1): "I don't know" always valid; no grading ---------- */
 export function RecallStage({ view, draft, onDraft, onContinue }: { view: any; draft: string; onDraft: (t: string) => void; onContinue: () => void }) {
   const [oriented, setOriented] = useState(false);
+  const recallPrompt = `Before we start: what do you already remember about ${view.concept.title.toLowerCase()}? ${
+    oriented ? `Orientation: this concept is about ${view.concept.objective}. The next step shows the cited course section.` : ""
+  }`;
   return (
     <section className="space-y-4" aria-labelledby="st-h">
-      <h2 id="st-h" tabIndex={-1} className="text-section">Before we start: what do you already remember about {view.concept.title.toLowerCase()}?</h2>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <h2 id="st-h" tabIndex={-1} className="text-section">Before we start: what do you already remember about {view.concept.title.toLowerCase()}?</h2>
+        <SpeakButton text={recallPrompt} title={view.concept.title} hint={view.concept.title} label="Speak" />
+      </div>
       <label htmlFor="recall" className="sr-only">Your recall</label>
       <textarea id="recall" className="field" value={draft} onChange={(e) => onDraft(e.target.value)} placeholder="Anything you remember — or nothing at all." />
       <p className="text-meta text-ink-muted">Not graded. It just helps you connect what comes next.</p>
@@ -26,12 +34,63 @@ export function RecallStage({ view, draft, onDraft, onContinue }: { view: any; d
 /* ---------- learn (UC11): cited chunk + different example + retrieval; reading = exposure only ---------- */
 export function LearnStage({ view, subjectId, sessionId, draft, onDraft, onContinue }:
   { view: any; subjectId: string; sessionId: string; draft: string; onDraft: (t: string) => void; onContinue: () => void }) {
+  const [showAvatar, setShowAvatar] = useState(true);
   const lesson = view.lesson;
   if (lesson?.locked) return <p>Lesson content is unavailable while an independent application is in progress.</p>;
   const ex = lesson?.excerpt;
+  const fullLessonScript = [
+    ex && !ex.tombstone ? ex.text : "",
+    lesson?.generated?.summary || "",
+    ...(lesson?.generated?.key_points || []),
+    lesson?.example?.text ? `Worked example: ${lesson.example.text}` : "",
+    !ex && !lesson?.generated ? view.concept?.objective || "" : "",
+  ]
+    .filter(Boolean)
+    .join(". ");
+
+  const askLessonProfessor = async (question: string) => {
+    try {
+      const r = await api("/professor/ask", {
+        method: "POST",
+        json: { subject_id: subjectId, question, idempotency_key: newKey() },
+      });
+      if (r?.message) return r.message as string;
+    } catch {
+      // Fallback handled by TeacherAvatar
+    }
+  };
+
   return (
     <section className="space-y-5" aria-labelledby="st-h">
-      <h2 id="st-h" tabIndex={-1} className="text-section">What your course says</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="st-h" tabIndex={-1} className="text-section">What your course says</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowAvatar((v) => !v)}
+            className="btn-secondary !min-h-[36px] !px-3 text-meta"
+          >
+            🎓 {showAvatar ? "Hide 3D Teacher" : "Learn with 3D Teacher"}
+          </button>
+          <SpeakButton
+            text={fullLessonScript}
+            title={view.concept?.title}
+            hint={view.concept?.title}
+            subjectId={subjectId}
+            label="Dock Avatar"
+          />
+        </div>
+      </div>
+      {showAvatar && fullLessonScript && (
+        <TeacherAvatar
+          text={fullLessonScript}
+          hint={view.concept?.title}
+          title={view.concept?.title}
+          compact
+          stageHeight={270}
+          onAsk={askLessonProfessor}
+        />
+      )}
       {ex && !ex.tombstone ? (
         <figure className="card">
           <blockquote className="whitespace-pre-line text-problem"><MathText text={ex.text} /></blockquote>
@@ -132,14 +191,31 @@ export function PracticeStage({ view, subjectId, draft, onDraft, onHelp, onReloa
   return (
     <section className="space-y-5" aria-labelledby="st-h">
       <LiveRegion message={announce} />
-      <div className="flex flex-wrap items-center gap-2"><OriginLabel origin={t.origin} detail={t.origin_detail} /><span className="text-meta text-ink-muted">{t.origin_detail}</span>
-        {t.context?.difficulty && <span className="pill text-ink">{({ easy: "Easy", medium: "Medium", hard: "Hard" } as any)[t.context.difficulty]}</span>}
-        {t.context?.is_trigger && <span className="pill text-help bg-help-surface">Checks your earlier mistake</span>}</div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <OriginLabel origin={t.origin} detail={t.origin_detail} />
+          <span className="text-meta text-ink-muted">{t.origin_detail}</span>
+          {t.context?.difficulty && <span className="pill text-ink">{({ easy: "Easy", medium: "Medium", hard: "Hard" } as any)[t.context.difficulty]}</span>}
+          {t.context?.is_trigger && <span className="pill text-help bg-help-surface">Checks your earlier mistake</span>}
+        </div>
+        <SpeakButton text={t.prompt} title="Practice task" hint={view.concept?.title} subjectId={subjectId} taskId={t.id} label="Speak prompt" />
+      </div>
       {t.context?.selection_reason && <p className="text-meta text-ink-muted">Why this question: {t.context.selection_reason}</p>}
       <h2 id="st-h" tabIndex={-1} className="text-problem font-bold"><MathText text={t.prompt} /></h2>
-      {view.nudge && !t.last_assessment && <p className="rounded-detail bg-help-surface p-3 text-help"><strong>From your history:</strong> {view.nudge}</p>}
+      {view.nudge && !t.last_assessment && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-detail bg-help-surface p-3 text-help">
+          <p><strong>From your history:</strong> {view.nudge}</p>
+          <SpeakButton text={`From your history: ${view.nudge}`} title="History nudge" hint={view.concept?.title} subjectId={subjectId} label="Speak" />
+        </div>
+      )}
       {t.revealed && t.solution && (
-        <div className="card"><p className="font-semibold">Worked solution (this attempt is assisted)</p><p className="mt-1"><MathText text={t.solution.steps} /></p></div>
+        <div className="card">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-semibold">Worked solution (this attempt is assisted)</p>
+            <SpeakButton text={t.solution.steps} title="Worked solution" hint={view.concept?.title} subjectId={subjectId} label="Speak solution" />
+          </div>
+          <p className="mt-1"><MathText text={t.solution.steps} /></p>
+        </div>
       )}
       {!done && !t.revealed && (
         <>
@@ -162,7 +238,17 @@ export function PracticeStage({ view, subjectId, draft, onDraft, onHelp, onReloa
       )}
       {a && (
         <div ref={fbRef} tabIndex={-1} className={`fade-in rounded-card border-2 p-4 ${a.outcome === "demonstrated" ? "border-success bg-success-surface" : a.outcome === "unscored" ? "border-border bg-surface" : "border-review bg-review-surface"}`}>
-          <p className="font-semibold">{a.feedback}</p>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <p className="font-semibold">{a.feedback}</p>
+            <SpeakButton
+              text={`${a.feedback} ${a.misconception?.targeted_question ? `One question: ${a.misconception.targeted_question}` : ""}`}
+              title="Feedback"
+              hint={view.concept?.title}
+              subjectId={subjectId}
+              taskId={t.id}
+              label="Speak feedback"
+            />
+          </div>
           {a.misconception?.targeted_question && <p className="mt-2"><strong>One question:</strong> <MathText text={a.misconception.targeted_question} /></p>}
           {!done && <p className="mt-2 text-meta">Revise your answer above and check again. Help steps never cost points.</p>}
           <div className="mt-3"><RubricFeedback assessment={a} subjectId={subjectId} compact /></div>
@@ -258,9 +344,14 @@ export function TransferStage({ view, subjectId, draft, onDraft, onReload, onRef
   const independent = t.mode === "independent-transfer";
   return (
     <section className="space-y-5" aria-labelledby="st-h" data-phase={finished ? "transfer-feedback" : "transfer-answer"}>
-      <div className="flex flex-wrap items-center gap-2">
-        <OriginLabel origin={t.origin} detail={t.origin_detail} />
-        <span className={`pill ${independent ? "text-ink" : "text-help bg-help-surface"}`}>{independent ? "Independent application: no in-app lesson or hint access" : "Guided practice (assisted)"}</span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <OriginLabel origin={t.origin} detail={t.origin_detail} />
+          <span className={`pill ${independent ? "text-ink" : "text-help bg-help-surface"}`}>{independent ? "Independent application: no in-app lesson or hint access" : "Guided practice (assisted)"}</span>
+        </div>
+        {(!independent || finished) && (
+          <SpeakButton text={t.prompt} title="New application" hint={view.concept.title} subjectId={subjectId} taskId={t.id} label="Speak problem" />
+        )}
       </div>
       <h2 id="st-h" tabIndex={-1} className="text-problem font-bold">{t.prompt}</h2>
       {!finished && (

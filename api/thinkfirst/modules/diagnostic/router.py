@@ -81,3 +81,12 @@ def skip(subject_id: str, user: User = Depends(current_user), db: Session = Depe
     """C03/UC07: skipping records insufficient evidence — never zero ability, never locks concepts."""
     workspaces.get_subject(db, user.id, subject_id)
     return {"evidence": service.skip_baseline(db, user.id, subject_id)}
+
+
+@router.get("/subjects/{subject_id}/level")
+def level(subject_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Starting level (beginner / intermediate / advanced / expert) + the metrics behind it, and the test state."""
+    from thinkfirst.modules.diagnostic import placement
+
+    workspaces.get_subject(db, user.id, subject_id)
+    return {"report": placement.report(db, user.id, subject_id), "placement": placement.status(db, user.id, subject_id)}

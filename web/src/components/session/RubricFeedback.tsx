@@ -2,6 +2,7 @@
 // Criterion feedback (override §3.3): said => confirmed quote; missing => "not demonstrated" + rubric criterion
 // + course source; uncertain => unscored (never zero). No mastery percentages; no totals hiding uncertainty.
 import Link from "next/link";
+import { SpeakButton } from "../avatar/AvatarSpeakerContext";
 import { SimulatedLabel } from "../ui";
 
 const NAMES: Record<string, string> = {
@@ -19,12 +20,26 @@ const STATUS: Record<string, { t: string; cls: string; icon: string }> = {
 export function RubricFeedback({ assessment, subjectId, compact = false }: { assessment: any; subjectId: string; compact?: boolean }) {
   if (!assessment) return null;
   const crit = (assessment.criteria || []).filter((c: any) => !(compact && c.status === "na"));
+  const spokenSummary = [
+    assessment.feedback,
+    ...crit.map((c: any) => {
+      const name = NAMES[c.criterion] || c.criterion;
+      const st = STATUS[c.status]?.t || c.status;
+      const miss = c.missing?.map((m: any) => m.description).join(", ");
+      return `${name}: ${st}.${miss ? ` Missing: ${miss}.` : ""}`;
+    }),
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <section aria-label="Feedback by criterion" className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        {assessment.method === "symbolic" ? <span className="pill text-success bg-success-surface">∑ {assessment.method_label}</span>
-          : <SimulatedLabel label={assessment.method_label} />}
-        {assessment.sufficiency !== "sufficient" && <span className="pill text-ink-muted">Evidence: {assessment.sufficiency}</span>}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {assessment.method === "symbolic" ? <span className="pill text-success bg-success-surface">∑ {assessment.method_label}</span>
+            : <SimulatedLabel label={assessment.method_label} />}
+          {assessment.sufficiency !== "sufficient" && <span className="pill text-ink-muted">Evidence: {assessment.sufficiency}</span>}
+        </div>
+        <SpeakButton text={spokenSummary} title="Rubric feedback" subjectId={subjectId} label="Speak feedback" />
       </div>
       {!compact && assessment.feedback && <p>{assessment.feedback}</p>}
       <ul className="space-y-3">

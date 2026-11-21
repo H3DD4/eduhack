@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signInDemo } from "./helpers";
+import { signInDemo, wizardWithCourse } from "./helpers";
 
 /* The 8-state hackathon storyboard (blueprint "Build order and acceptance criteria"), on the seeded demo account,
    with REAL browser capture (Chromium fake microphone) and labeled demo transcription/assessment. */
@@ -7,21 +7,29 @@ test("demo storyboard: 2(x+3) misconception -> explain-back (voice) -> follow-up
   // 1. G01 empty -> one clear starting CTA
   await signInDemo(page);
   await expect(page.locator("[data-screen=G01]")).toBeVisible();
-  await page.getByRole("link", { name: "Add subject" }).click();
+  await page.getByRole("link", { name: /Add a subject/ }).click();
 
-  // 2. C01: demo course PDF, limits + rights visible
-  await expect(page.locator("[data-screen=C01]")).toBeVisible();
-  await expect(page.getByText(/up to 20 MB per file/)).toBeVisible();
-  await page.getByRole("button", { name: "Use the demo course file" }).click();
-  await expect(page.getByRole("list", { name: "Selected files" })).toContainText("MATH101");
-  await page.getByLabel(/I may use these materials/).check();
-  await page.getByRole("button", { name: "Create subject" }).click();
+  // 2. C01 start wizard: exam -> topic -> demo course PDF (limits + rights visible) -> start from scratch
+  await wizardWithCourse(page, async () => {
+    await expect(page.getByText(/up to 20 MB per file/)).toBeVisible();
+    await page.getByRole("button", { name: "Use the demo course file" }).click();
+    await expect(page.getByRole("list", { name: "Selected files" })).toContainText("MATH101");
+  });
 
   // 3. C02: processing -> confirm scope with cited pages
-  await expect(page.locator("[data-screen=C02]")).toBeVisible();
   await expect(page.getByText(/Heuristic extraction/)).toBeVisible();
   await page.getByRole("button", { name: "See cited page 2" }).first().click();
   await page.getByRole("button", { name: "Confirm scope" }).click();
+
+  // 3b. J01 my path: roadmap done, level = beginner (from scratch), summary of every page written for that level
+  await expect(page.locator("[data-screen=J01]")).toBeVisible();
+  await expect(page.locator("[data-step=level]")).toHaveAttribute("data-state", "done");
+  await expect(page.getByTestId("level-label")).toHaveText("Beginner");
+  await expect(page.locator("[data-step=summary]")).toHaveAttribute("data-state", "done");
+  await page.getByRole("button", { name: "Read summary" }).click();
+  await expect(page.locator("[data-screen=R01]")).toBeVisible();
+  await expect(page.locator("p", { hasText: "Coverage:" })).toContainText(/(\d+)\/\1 pages/);
+  await page.getByRole("link", { name: "Open roadmap" }).click();
 
   // 4. W01 + W06: vertical path, optional foundation, start concept
   await expect(page.locator("[data-screen=W01]")).toBeVisible();

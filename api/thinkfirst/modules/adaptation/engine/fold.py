@@ -43,14 +43,16 @@ class _C:
     def __init__(self, spec: ConceptSpec, cfg: EngineConfig):
         self.spec = spec
         self.prm = cfg.concept_bkt.get(spec.concept_id, cfg.bkt)
-        self.p = self.prm.prior
+        self.p = spec.prior if spec.prior is not None else self.prm.prior
         self.scored = self.unaided_ok = self.assisted_ok = self.fail = 0
         self.stability: float | None = None
         self.last_unaided: datetime | None = None
         self.delayed_checks = self.delayed_ok = 0
         self.ms: dict[str, MisconceptionState] = {}
         self.diag = False
-        self.reasons: list[str] = []
+        self.reasons: list[str] = (
+            [f"starting P(known) {spec.prior:.2f} from the placement test / start-from-scratch choice"]
+            if spec.prior is not None else [])
 
 
 def _utc(ts: datetime) -> datetime:
@@ -162,6 +164,11 @@ def _propagate(c: _C, e: LearningEvent, cs: dict[str, _C], get, cfg: EngineConfi
 
 def level_for(c: _C, cfg: EngineConfig) -> int:
     if c.scored == 0:
+        # no practice yet: a placement-test prior can already show the concept as developing / proficient
+        if c.spec.prior is not None and c.p >= cfg.proficient:
+            return 4
+        if c.spec.prior is not None and c.p >= 0.6:
+            return 3
         return 0
     active = any(m.status in ("active", "remediating") for m in c.ms.values())
     if c.p >= cfg.mastered and c.unaided_ok >= 2 and c.delayed_ok >= 1 and not active:

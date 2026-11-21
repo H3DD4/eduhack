@@ -1,151 +1,235 @@
 "use client";
-// C01 Create subject — UC03/UC05. Limits shown before selection; rights/privacy acknowledged; per-file rows.
+// C01 Start learning — the start wizard: why (exam / new) → what (topic) → material (files / paste / none) →
+// prior knowledge (test my level / start from scratch) → review. Then C02 builds the roadmap and the learning path
+// (/subjects/:s/start) takes over: level → course summary → first lesson.
 import { useRouter } from "next/navigation";
-import { FormEvent, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppShell, useMe } from "@/components/AppShell";
-import { TopicLauncher } from "@/components/TopicLauncher";
 import { DemoLabel, ErrorBox } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 
-function DemoFileButton({ onFile }: { onFile: (f: File) => void }) {
-  const { me } = useMe();
-  if (!me?.is_demo) return null;
+type Goal = "exam" | "explore";
+type Prior = "some" | "none";
+const STEPS = ["Why", "Topic", "Material", "Your level", "Check"];
+const ACCEPT = ".pdf,.docx,.pptx,.txt,.md";
+
+function Choice({ pressed, onClick, icon, title, text, name }:
+  { pressed: boolean; onClick: () => void; icon: string; title: string; text: string; name?: string }) {
   return (
-    <div className="card mt-4 border-discovery">
-      <DemoLabel />
-      <p className="mt-2 text-meta">A permission-cleared demo course (MATH 101 — Algebra Foundations) is available for the demo account.</p>
-      <button type="button" className="btn-secondary mt-3" onClick={async () => {
-        const blob = await api<Blob>("/demo/course-file");
-        onFile(new File([blob], "MATH101-algebra-foundations-DEMO.pdf", { type: "application/pdf" }));
-      }}>Use the demo course file</button>
-    </div>
+    <button type="button" aria-pressed={pressed} onClick={onClick} aria-label={name ?? title}
+      className={`game-card flex w-full items-start gap-4 p-5 text-left ${pressed ? "!bg-hl" : ""}`}>
+      <span aria-hidden className="flex h-14 w-14 shrink-0 items-center justify-center rounded-card border-2 border-ink bg-soft text-[1.75rem]">{icon}</span>
+      <span><span className="block text-[1.25rem] font-bold">{title}</span><span className="mt-1 block text-ink-muted">{text}</span></span>
+    </button>
   );
 }
 
-export default function CreateSubject() {
+export default function StartWizard() {
   const router = useRouter();
+  const { me } = useMe();
   const { data: limits } = useApi<any>("/limits");
-  const [mode, setMode] = useState<"upload" | "topic">("upload");
-  const [name, setName] = useState("");
-  const [role, setRole] = useState("course");
+  const { data: sugg } = useApi<any>("/topics/suggestions");
+  const [step, setStep] = useState(0);
+  const [goal, setGoal] = useState<Goal | null>(null);
+  const [examDate, setExamDate] = useState("");
+  const [topic, setTopic] = useState("");
+  const [material, setMaterial] = useState<"files" | "none" | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [paste, setPaste] = useState("");
   const [rights, setRights] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [prior, setPrior] = useState<Prior | null>(null);
   const [busy, setBusy] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const headRef = useRef<HTMLHeadingElement>(null);
   const maxMb = limits ? Math.round(limits.max_file_bytes / 1048576) : 20;
+
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("topic");
+    if (t) setTopic(t.slice(0, 200));
+  }, []);
+  useEffect(() => { headRef.current?.focus(); }, [step]);
 
   const addFiles = (list: FileList | File[]) => {
     const arr = Array.from(list);
     setFiles((f) => [...f, ...arr].slice(0, limits?.max_files_per_batch ?? 5));
-    if (!name && arr[0]) setName(arr[0].name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "));
+    if (!topic && arr[0]) setTopic(arr[0].name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "));
   };
+  const hasMaterial = material === "files" && (files.length > 0 || paste.trim().length > 0);
+  const canNext = [
+    !!goal,
+    topic.trim().length >= 2,
+    material === "none" || (material === "files" && hasMaterial && rights),
+    !!prior,
+    true,
+  ][step];
+  const next = () => canNext && setStep((s) => Math.min(s + 1, STEPS.length - 1));
+  const back = () => setStep((s) => Math.max(0, s - 1));
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError(null);
+  const submit = async () => {
     setBusy(true);
+    setError(null);
     try {
-      if (mode === "topic") {
-        const r = await api("/subjects/guided", { method: "POST", json: { name: name || "Algebra foundations (guided)", discipline: "algebra" } });
-        router.push(`/subjects/${r.subject.id}/setup`);
-        return;
-      }
       const fd = new FormData();
-      fd.set("name", name);
-      fd.set("role", role);
-      fd.set("rights_ack", String(rights));
-      fd.set("paste_text", paste);
-      files.forEach((f) => fd.append("files", f));
-      const r = await api("/subjects", { method: "POST", body: fd, retries: 0 });
+      fd.set("topic", topic.trim());
+      fd.set("goal", goal!);
+      fd.set("prior_knowledge", prior!);
+      if (goal === "exam" && examDate) fd.set("exam_date", examDate);
+      if (material === "files") {
+        fd.set("rights_ack", String(rights));
+        fd.set("paste_text", paste);
+        files.forEach((f) => fd.append("files", f));
+      }
+      const r = await api("/subjects/start", { method: "POST", body: fd, retries: 0 });
       router.push(`/subjects/${r.subject.id}/setup`);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (e: any) {
+      setError(e.message);
       setBusy(false);
     }
   };
 
   return (
-    <AppShell crumbs={[{ href: "/subjects", label: "Subjects" }, { label: "New subject" }]}>
-      <section className="hero mb-8 p-6 md:p-10" aria-labelledby="learn-h">
-        <div className="relative z-10 max-w-3xl">
-          <h1 id="learn-h" className="text-page-compact md:text-page">What do you want to learn?</h1>
-          <p className="muted mt-2">No files needed — type a topic and start right away.</p>
-          <div className="mt-5"><TopicLauncher dark autoFocus /></div>
+    <AppShell crumbs={[{ href: "/subjects", label: "Subjects" }, { label: "Start learning" }]}>
+      <div className="mx-auto max-w-prose" data-screen="C01">
+        <div className="mb-6 flex items-center gap-3">
+          <button type="button" className="btn-link" onClick={back} disabled={step === 0} aria-label="Back to the previous question">← Back</button>
+          <div className="bar flex-1" role="progressbar" aria-label="Start wizard progress" aria-valuemin={1} aria-valuemax={STEPS.length} aria-valuenow={step + 1}>
+            <span style={{ width: `${Math.round((100 * (step + 1)) / STEPS.length)}%` }} />
+          </div>
+          <span className="text-meta text-ink-muted">{step + 1}/{STEPS.length}</span>
         </div>
-      </section>
-      <form onSubmit={submit} className="game-card max-w-prose space-y-6 p-6" data-screen="C01">
-        <h2 className="text-section">Or build it from your own course files</h2>
-        {error && <ErrorBox message={error} />}
-        <fieldset className="flex flex-wrap gap-2">
-          <legend className="label">How do you want to start?</legend>
-          {[["upload", "Upload or paste course material"], ["topic", "I'm unsure — guided topic"]].map(([v, t]) => (
-            <label key={v} className={`flex min-h-[48px] items-center gap-2 rounded-control border-2 px-4 ${mode === v ? "border-action bg-success-surface" : "border-stroke bg-surface"}`}>
-              <input type="radio" name="mode" checked={mode === v} onChange={() => setMode(v as any)} /> {t}
-            </label>
-          ))}
-        </fieldset>
-        <div>
-          <label htmlFor="name" className="label">Subject name</label>
-          <input id="name" className="field" value={name} onChange={(e) => setName(e.target.value)} required={mode === "upload"} />
-        </div>
-        {mode === "upload" ? (
-          <>
-            <fieldset>
-              <legend className="label">What are these files?</legend>
-              <div className="flex flex-wrap gap-2">
-                {[["course", "Course"], ["notes", "Notes"], ["past_exam", "Past exam"]].map(([v, t]) => (
-                  <label key={v} className="flex min-h-[44px] items-center gap-2 rounded-control border-2 border-stroke bg-surface px-3">
-                    <input type="radio" name="role" checked={role === v} onChange={() => setRole(v)} /> {t}
-                  </label>
-                ))}
+        {error && <div className="mb-4"><ErrorBox message={error} /></div>}
+
+        <section key={step} className="step-in space-y-5">
+          {step === 0 && (
+            <>
+              <h1 ref={headRef} tabIndex={-1} className="text-page-compact md:text-page">Why are you learning?</h1>
+              <div className="grid gap-4">
+                <Choice pressed={goal === "exam"} onClick={() => setGoal("exam")} icon="🎯" title="I'm preparing for an exam"
+                  text="A focused path: what is typically asked, classic traps, and a summary to revise from." />
+                <Choice pressed={goal === "explore"} onClick={() => setGoal("explore")} icon="🧭" title="I want to learn something new"
+                  text="Learn any topic from zero or deepen it — with or without your own documents." />
               </div>
-            </fieldset>
-            <div className="card">
-              <p className="font-semibold">Files</p>
-              <p className="mt-1 text-meta text-ink-muted" id="limits">
-                {limits ? `Text PDF, PPTX, TXT, MD · up to ${maxMb} MB per file · ${limits.max_files_per_batch} files at a time · ${limits.max_pages_per_file} pages per file. Scanned PDFs/photos (OCR) arrive later.` : "Loading limits…"}
-              </p>
-              <input ref={inputRef} id="files" type="file" multiple accept=".pdf,.pptx,.txt,.md" className="sr-only" aria-describedby="limits"
-                onChange={(e) => e.target.files && addFiles(e.target.files)} />
-              <label htmlFor="files" className="btn-secondary mt-3 cursor-pointer">Choose files</label>
-              {files.length > 0 && (
-                <ul className="mt-3 space-y-2" aria-label="Selected files">
-                  {files.map((f, i) => (
-                    <li key={i} className="flex flex-wrap items-center justify-between gap-2 rounded-detail border border-border px-3 py-2">
-                      <span>{f.name} <span className="text-meta text-ink-muted">· {(f.size / 1024).toFixed(0)} KB{f.size > (limits?.max_file_bytes ?? Infinity) ? " · too large" : ""}</span></span>
-                      <button type="button" className="btn-link" onClick={() => setFiles(files.filter((_, j) => j !== i))}>Remove<span className="sr-only"> {f.name}</span></button>
-                    </li>
+              {goal === "exam" && (
+                <div className="fade-in">
+                  <label htmlFor="exam-date" className="label">Exam date (optional)</label>
+                  <input id="exam-date" type="date" className="field max-w-xs" value={examDate} onChange={(e) => setExamDate(e.target.value)} />
+                </div>
+              )}
+            </>
+          )}
+
+          {step === 1 && (
+            <>
+              <h1 ref={headRef} tabIndex={-1} className="text-page-compact md:text-page">What do you want to learn?</h1>
+              <label htmlFor="topic" className="sr-only">Topic</label>
+              <input id="topic" className="field !min-h-[56px] text-problem" maxLength={200} value={topic} autoFocus
+                placeholder="e.g. Ohm's law, derivatives, French revolution, Python loops…" onChange={(e) => setTopic(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && next()} />
+              {sugg?.suggestions && (
+                <ul className="flex flex-wrap gap-2" aria-label="Suggested topics">
+                  {sugg.suggestions.map((x: any) => (
+                    <li key={x.topic}><button type="button" className="chip text-ink" aria-pressed={topic === x.topic} onClick={() => setTopic(x.topic)}>
+                      <span aria-hidden className="text-action">{x.icon}</span> {x.topic}</button></li>
                   ))}
                 </ul>
               )}
-            </div>
-            <DemoFileButton onFile={(f) => addFiles([f])} />
-            <div>
-              <label htmlFor="paste" className="label">Or paste notes (optional)</label>
-              <textarea id="paste" className="field" value={paste} onChange={(e) => setPaste(e.target.value)} />
-            </div>
-            <label className="flex items-start gap-3">
-              <input type="checkbox" className="mt-1 h-5 w-5" checked={rights} onChange={(e) => setRights(e.target.checked)} />
-              <span>I may use these materials for my own study. They stay private to me and are never shared or used for training.</span>
-            </label>
-          </>
-        ) : (
-          <div className="card">
-            <p>Start without a file: ThinkFirst proposes a starter scope you confirm. It is labeled <strong>AI-generated</strong>, never “extracted from your course”.</p>
-            <p className="mt-2 text-meta text-ink-muted">Available guided topic in this build: Algebra foundations (Demo data).</p>
-          </div>
-        )}
-        <div className="flex flex-wrap gap-3">
-          <button className="btn-primary" disabled={busy || (mode === "upload" && (!rights || (!files.length && !paste.trim())))} aria-busy={busy}>
-            {busy ? "Creating…" : "Create subject"}
-          </button>
+            </>
+          )}
+
+          {step === 2 && (
+            <>
+              <h1 ref={headRef} tabIndex={-1} className="text-page-compact md:text-page">Do you have course material?</h1>
+              <div className="grid gap-4">
+                <Choice pressed={material === "files"} onClick={() => setMaterial("files")} icon="📄" title="Yes — use my course"
+                  text="Upload your course (several files: PDF, Word, PowerPoint, text) or paste notes. The roadmap and summary follow it page by page." />
+                <Choice pressed={material === "none"} onClick={() => setMaterial("none")} icon="✨" title="No — find the material for me"
+                  text={sugg && !sugg.ai_available ? "Needs an AI service (not configured here)." : "ThinkFirst builds the roadmap from openly licensed sources (with citations). Only your topic text is used to search."} />
+              </div>
+              {material === "files" && (
+                <div className="fade-in game-card space-y-4 p-5">
+                  <div>
+                    <p className="font-semibold">Files</p>
+                    <p className="mt-1 text-meta text-ink-muted" id="limits">
+                      {limits ? `PDF (with text), Word .docx, PowerPoint .pptx, TXT, MD · up to ${maxMb} MB per file · ${limits.max_files_per_batch} files at a time · ${limits.max_pages_per_file} pages per file.` : "Loading limits…"}
+                    </p>
+                    <input id="files" type="file" multiple accept={ACCEPT} className="sr-only" aria-describedby="limits"
+                      onChange={(e) => e.target.files && addFiles(e.target.files)} />
+                    <label htmlFor="files" className="btn-secondary mt-3 cursor-pointer">Choose files</label>
+                    {files.length > 0 && (
+                      <ul className="mt-3 space-y-2" aria-label="Selected files">
+                        {files.map((f, i) => (
+                          <li key={i} className="flex flex-wrap items-center justify-between gap-2 rounded-detail border border-border px-3 py-2">
+                            <span className="break-all">{f.name} <span className="text-meta text-ink-muted">· {(f.size / 1024).toFixed(0)} KB{f.size > (limits?.max_file_bytes ?? Infinity) ? " · too large" : ""}</span></span>
+                            <button type="button" className="btn-link" onClick={() => setFiles(files.filter((_, j) => j !== i))}>Remove<span className="sr-only"> {f.name}</span></button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  {me?.is_demo && (
+                    <div className="card border-discovery">
+                      <DemoLabel />
+                      <p className="mt-2 text-meta">A permission-cleared demo course (MATH 101 — Algebra Foundations) is available for the demo account.</p>
+                      <button type="button" className="btn-secondary mt-3" onClick={async () => {
+                        const blob = await api<Blob>("/demo/course-file");
+                        addFiles([new File([blob], "MATH101-algebra-foundations-DEMO.pdf", { type: "application/pdf" })]);
+                      }}>Use the demo course file</button>
+                    </div>
+                  )}
+                  <div>
+                    <label htmlFor="paste" className="label">Or paste text (optional)</label>
+                    <textarea id="paste" className="field min-h-[120px]" value={paste} onChange={(e) => setPaste(e.target.value)} />
+                  </div>
+                  <label className="flex items-start gap-3">
+                    <input type="checkbox" className="mt-1 h-5 w-5" checked={rights} onChange={(e) => setRights(e.target.checked)} />
+                    <span>I may use these materials for my own study. They stay private to me and are never shared or used for training.</span>
+                  </label>
+                </div>
+              )}
+            </>
+          )}
+
+          {step === 3 && (
+            <>
+              <h1 ref={headRef} tabIndex={-1} className="text-page-compact md:text-page">Do you already know something about “{topic.trim()}”?</h1>
+              <div className="grid gap-4">
+                <Choice pressed={prior === "some"} onClick={() => setPrior("some")} icon="🧪" title="Yes — test my level"
+                  text="A short adaptive multiple-choice test (5–12 questions, ~5 min). We find what you already know, your level and your gaps." />
+                <Choice pressed={prior === "none"} onClick={() => setPrior("none")} icon="🌱" title="No — start from scratch"
+                  text="You are treated as a full beginner: every term explained, step by step, nothing assumed." />
+              </div>
+            </>
+          )}
+
+          {step === 4 && (
+            <>
+              <h1 ref={headRef} tabIndex={-1} className="text-page-compact md:text-page">Your plan</h1>
+              <ol className="space-y-3">
+                {[
+                  ["🎯", goal === "exam" ? `Exam preparation${examDate ? ` · exam on ${examDate}` : ""}` : "Learning something new"],
+                  ["📚", topic.trim()],
+                  ["📄", material === "files" ? `Your material: ${files.length} file(s)${paste.trim() ? " + pasted text" : ""}` : "No files — open sources with citations"],
+                  ["🧪", prior === "some" ? "Level test first, then everything adapts to your level" : "Start from scratch as a beginner"],
+                ].map(([i, t]) => (
+                  <li key={t} className="game-card flex items-center gap-3 p-4"><span aria-hidden className="text-[1.5rem]">{i}</span><span className="font-semibold">{t}</span></li>
+                ))}
+              </ol>
+              <p className="text-ink-muted">Next: ThinkFirst builds your roadmap → {prior === "some" ? "you take the level test → " : ""}you get a course summary written for your level → you start learning.</p>
+            </>
+          )}
+        </section>
+
+        <div className="mt-8 flex flex-wrap gap-3">
+          {step < STEPS.length - 1 ? (
+            <button type="button" className="btn-primary" onClick={next} disabled={!canNext}>Continue</button>
+          ) : (
+            <button type="button" className="btn-primary" onClick={submit} disabled={busy} aria-busy={busy}>{busy ? "Building…" : "Build my learning path"}</button>
+          )}
           <button type="button" className="btn-secondary" onClick={() => router.back()}>Cancel</button>
         </div>
-        {mode === "upload" && !rights && <p className="text-meta text-ink-muted">Confirm the study-use statement to create the subject.</p>}
-      </form>
+        {step === 2 && material === "files" && !rights && <p className="mt-2 text-meta text-ink-muted">Confirm the study-use statement to continue.</p>}
+      </div>
     </AppShell>
   );
 }

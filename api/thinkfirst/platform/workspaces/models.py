@@ -19,7 +19,9 @@ class Subject(Base, OwnedMixin, TimestampMixin):
     origin: Mapped[str] = mapped_column(String(16), default="upload")  # upload | guided_topic
     # processing | awaiting_confirmation | needs_attention | ready
     status: Mapped[str] = mapped_column(String(32), default="processing")
-    goal: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    goal: Mapped[str | None] = mapped_column(String(32), nullable=True)  # exam | explore (start wizard)
+    # start wizard: "some" = test my level first, "none" = start from scratch (beginner). None = older subjects.
+    prior_knowledge: Mapped[str | None] = mapped_column(String(16), nullable=True)
     exam_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     active_graph_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     last_concept_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

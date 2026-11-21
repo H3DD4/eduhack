@@ -56,5 +56,6 @@ def archive(db: Session, owner_id: str, subject_id: str) -> None:
 def subject_public(s: Subject) -> dict:
     return {"id": s.id, "name": s.name, "origin": s.origin, "status": s.status, "goal": s.goal,
             "exam_date": s.exam_date.isoformat() if s.exam_date else None,
+            "prior_knowledge": s.prior_knowledge,
             "active_graph_revision_id": s.active_graph_revision_id, "last_concept_id": s.last_concept_id,
             "created_at": s.created_at.isoformat()}

@@ -370,8 +370,13 @@ def ensure_knowledge_space(db: Session, owner_id: str, subject_id: str) -> tuple
     ).order_by(DiagnosticItemRow.item_key)).all())
 
     existing_keys = {r.item_key for r in rows}
+    # Concepts with verified AI-written placement questions (modules/diagnostic/placement.py) do not need the
+    # generic "core goal" placeholder checks; those placeholders are also left out of the bank below.
+    ai_skills = {sk for r in rows if r.generated and r.verified for sk in (r.skills or [])}
     created = False
     for idx, c in enumerate(concepts):
+        if c.key in ai_skills and c.key not in CURATED_BANK:
+            continue
         templates = CURATED_BANK.get(c.key) or _generic_items_for_concept(db, owner_id, subject_id, c, idx)
         for tmpl in templates:
             ikey = f"{c.key}_{tmpl['suffix']}"
@@ -414,6 +419,8 @@ def ensure_knowledge_space(db: Session, owner_id: str, subject_id: str) -> tuple
         sk = tuple(s for s in (r.skills or []) if s in valid_skills)
         if not sk:
             continue
+        if not r.generated and r.kind == "mcq" and any(s in ai_skills for s in sk) and not any(s in CURATED_BANK for s in sk):
+            continue  # placeholder superseded by verified AI questions
         misc_map = {str(opt["id"]): str(opt["misconception"]) for opt in (r.options or []) if opt.get("misconception")}
         domain_items.append(Item(
             id=r.item_key,
@@ -424,6 +431,7 @@ def ensure_knowledge_space(db: Session, owner_id: str, subject_id: str) -> tuple
             verified=r.verified,
             generated=r.generated,
             calibrated=r.calibrated,
+            cross_checked=bool(r.cross_checked),
             n_answers=r.n_answers,
             language=r.language,
             misconceptions=misc_map,

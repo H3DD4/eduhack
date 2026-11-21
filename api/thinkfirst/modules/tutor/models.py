@@ -105,3 +105,42 @@ class ConceptPack(Base, OwnedMixin, TimestampMixin):
     content: Mapped[dict] = mapped_column(JSON, default=dict)
     label: Mapped[str] = mapped_column(String(200), default="")
     provider: Mapped[str] = mapped_column(String(32), default="")
+
+
+class CourseSummary(Base, OwnedMixin, TimestampMixin):
+    """Level-adapted course summary ("résumé") for one subject. mode=course: built page-by-page from the student's
+    uploaded files, every page must be covered (coverage is checked, never assumed); mode=topic: one detailed
+    section per roadmap concept, grounded in openly licensed sources. One row per (subject, level)."""
+
+    __tablename__ = "course_summaries"
+    __table_args__ = SCHEMA
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    subject_id: Mapped[str] = mapped_column(String(36), index=True)
+    level: Mapped[str] = mapped_column(String(16))          # beginner | intermediate | advanced | expert
+    goal: Mapped[str] = mapped_column(String(16), default="explore")  # exam | explore
+    mode: Mapped[str] = mapped_column(String(8))            # course | topic
+    status: Mapped[str] = mapped_column(String(16), default="building")  # building | ready | partial | failed
+    label: Mapped[str] = mapped_column(String(200), default="")
+    provider: Mapped[str] = mapped_column(String(32), default="")
+    superseded: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class CourseSummarySection(Base, OwnedMixin, TimestampMixin):
+    """One section of a summary; one job per section (no shared JSON row, so parallel workers never overwrite)."""
+
+    __tablename__ = "course_summary_sections"
+    __table_args__ = SCHEMA
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    summary_id: Mapped[str] = mapped_column(String(36), index=True)
+    no: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(300), default="")
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | ready | incomplete | failed
+    # course mode: [{"source_id", "filename", "page"}]; topic mode: []
+    pages: Mapped[list] = mapped_column(JSON, default=list)
+    concept_keys: Mapped[list] = mapped_column(JSON, default=list)
+    focus: Mapped[str] = mapped_column(String(8), default="new")  # known | focus | new
+    content: Mapped[dict] = mapped_column(JSON, default=dict)     # blocks, key_terms, mistakes, checks, sources
+    missing_pages: Mapped[list] = mapped_column(JSON, default=list)
+    error_code: Mapped[str | None] = mapped_column(String(48), nullable=True)
