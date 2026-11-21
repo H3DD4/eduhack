@@ -56,9 +56,9 @@ export function AppShell({ children, crumbs = [], focused = false, requireSetup 
     <Ctx.Provider value={{ me, caps, refreshMe }}>
       <a href="#main" className="skip-link btn-secondary">Skip to content</a>
       {!focused && (
-        <nav aria-label="Main" className="fixed inset-y-0 left-0 hidden w-[208px] flex-col border-r border-border bg-surface p-4 lg:flex">
+        <nav aria-label="Main" className="sidebar-game fixed inset-y-0 left-0 z-30 hidden w-[208px] flex-col p-4 md:flex">
           <Link href="/today" className="mb-6 flex items-center gap-2 text-section font-bold" aria-label="ThinkFirst home">
-            <span aria-hidden className="text-action">◆</span> ThinkFirst
+            <span aria-hidden className="text-discovery">◆</span> ThinkFirst
           </Link>
           <ul className="space-y-1">
             {GLOBAL.map((g) => {
@@ -66,24 +66,25 @@ export function AppShell({ children, crumbs = [], focused = false, requireSetup 
               return (
                 <li key={g.href}>
                   <Link href={g.href} aria-current={active ? "page" : undefined}
-                    className={`flex min-h-[44px] items-center gap-3 rounded-control px-3 font-semibold ${active ? "bg-success-surface text-action-base" : "hover:bg-canvas"}`}>
+                    className="flex min-h-[48px] items-center gap-3 rounded-control px-3 font-bold">
                     <span aria-hidden>{g.icon}</span>{g.label}
                   </Link>
                 </li>
               );
             })}
           </ul>
-          {me.is_demo && <p className="mt-auto text-meta text-ink-muted">Demo account · labeled Demo data</p>}
+          <Link href="/subjects/new" className="btn-primary mt-6 !min-h-[48px] w-full">+ Learn something</Link>
+          {me.is_demo && <p className="mt-auto text-meta text-[#CFE6E2]">Demo account · labeled Demo data</p>}
         </nav>
       )}
-      <div className={focused ? "" : "lg:pl-[208px]"}>
+      <div className={focused ? "" : "md:pl-[208px]"}>
         {!focused && (
           <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-surface/95 px-4 lg:h-16 lg:px-6">
             <nav aria-label="Breadcrumb" className="min-w-0 truncate text-meta">
               <ol className="flex items-center gap-2">
-                <li className="lg:hidden font-bold">ThinkFirst</li>
+                <li className="md:hidden font-bold">ThinkFirst</li>
                 {crumbs.map((c, i) => (
-                  <li key={i} className="hidden items-center gap-2 lg:flex">
+                  <li key={i} className="hidden items-center gap-2 md:flex">
                     {i > 0 && <span aria-hidden className="text-ink-muted">/</span>}
                     {c.href ? <Link className="underline-offset-2 hover:underline" href={c.href}>{c.label}</Link> : <span aria-current="page">{c.label}</span>}
                   </li>
@@ -111,10 +112,10 @@ export function AppShell({ children, crumbs = [], focused = false, requireSetup 
             </div>
           </header>
         )}
-        <main id="main" className={focused ? "" : "mx-auto max-w-overview px-4 py-6 pb-28 md:px-6 lg:pb-10 2xl:px-8"}>{children}</main>
+        <main id="main" className={focused ? "" : "mx-auto max-w-overview px-4 py-6 pb-28 md:px-6 md:pb-10 2xl:px-8"}>{children}</main>
       </div>
       {!focused && (
-        <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
+        <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
           <ul className="grid h-16 grid-cols-4">
             {GLOBAL.map((g) => {
               const active = path.startsWith(g.href);

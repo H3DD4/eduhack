@@ -21,9 +21,9 @@ from thinkfirst.modules.assessment import mathcheck
 from thinkfirst.modules.assessment import service as assessment
 from thinkfirst.modules.billing import service as billing
 from thinkfirst.modules.ingestion import service as ingestion
-from thinkfirst.modules.learner_model import service as learner
 from thinkfirst.modules.llm_gateway import service as llm
 from thinkfirst.modules.llm_gateway.service import register_demo
+from thinkfirst.modules.student_profile import service as learner
 from thinkfirst.modules.tutor import generators, policy
 from thinkfirst.modules.tutor.models import HelpEvent, Reflection, StudySession, Task
 from thinkfirst.modules.workspaces import service as workspaces
@@ -55,6 +55,9 @@ def create_session(db: Session, owner_id: str, subject_id: str, concept_id: str,
     db.add(s)
     db.flush()
     workspaces.set_last_concept(db, owner_id, subject_id, concept_id)
+    from thinkfirst.modules.tutor import packs
+
+    packs.ensure_pack(db, owner_id, subject_id, concept_id)
     return s
 
 
@@ -217,12 +220,39 @@ def _create_practice_task(db: Session, s: StudySession, parent: Task | None = No
             return None
         origin, detail, prompt = "ai-generated", ORIGIN_DETAIL["ai-generated"], f"Expand {expr}."
     else:
-        return None
+        return _create_pack_practice_task(db, s, concept, parent)
     hints, sol = generators.expand_hints(expr)
     t = Task(owner_id=s.owner_id, session_id=s.id, subject_id=s.subject_id, stage="practice", kind="expand",
              prompt=prompt, origin=origin, origin_detail=detail, task_family_id=f"expand:{concept.key}",
              context={"objective": concept.objective}, solution={"expression": expr, **sol}, hints=hints,
              mode="practice", parent_task_id=parent.id if parent else None)
+    db.add(t)
+    db.flush()
+    return t
+
+
+def _pack_content(db: Session, s: StudySession) -> tuple[dict | None, str]:
+    from thinkfirst.modules.tutor import packs
+
+    pack = packs.get_pack(db, s.owner_id, s.concept_id)
+    if pack is None or pack.status != "ready":
+        return None, pack.status if pack else "missing"
+    return pack.content, pack.label
+
+
+def _create_pack_practice_task(db: Session, s: StudySession, concept, parent: Task | None) -> Task | None:
+    content, label = _pack_content(db, s)
+    if not content:
+        return None
+    used = {t.prompt for t in tasks_of(db, s) if t.stage == "practice"}
+    item = next((p for p in content.get("practice", []) if p["prompt"] not in used), None)
+    if item is None:
+        return None
+    t = Task(owner_id=s.owner_id, session_id=s.id, subject_id=s.subject_id, stage="practice",
+             kind="expression" if item["answer_kind"] == "expression" else "short_answer", prompt=item["prompt"],
+             origin="ai-generated", origin_detail=f"Generated study pack — {label}", task_family_id=f"pack:{concept.key}",
+             context={"objective": concept.objective}, solution={"expected": item["expected_answer"], "steps": item["hints"][-1]},
+             hints=item["hints"], mode="practice", parent_task_id=parent.id if parent else None)
     db.add(t)
     db.flush()
     return t
@@ -277,7 +307,27 @@ def _transfer_job(db: Session, job: jobs.Job) -> dict:
         return {"task_id": existing.id}
     concept = ingestion.get_concept(db, s.owner_id, s.concept_id)
     if "distribut" not in concept.title.lower():
-        return {"task_id": None, "unavailable": "No validated application task exists for this concept yet."}
+        from thinkfirst.modules.tutor import packs
+
+        pack = packs.get_pack(db, s.owner_id, s.concept_id)
+        if pack is not None and pack.status == "pending":
+            raise jobs.JobError("PACK_NOT_READY")
+        tr = (pack.content or {}).get("transfer") if pack and pack.status == "ready" else None
+        practice_prompts = {t.prompt for t in tasks_of(db, s) if t.stage == "practice"}
+        if not tr or tr["prompt"] in practice_prompts:
+            return {"task_id": None, "unavailable": "No validated application task exists for this concept yet."}
+        t = Task(owner_id=s.owner_id, session_id=s.id, subject_id=s.subject_id, stage="transfer",
+                 kind="expression" if tr["answer_kind"] == "expression" else "short_answer", prompt=tr["prompt"],
+                 origin="ai-generated", origin_detail=f"Generated study pack — {pack.label}",
+                 task_family_id=f"pack-transfer:{concept.key}",
+                 novelty={"different_expression": True, "different_context": True,
+                          "validated_by": f"generated as a new context; {tr['why_new']}"[:300]},
+                 solution={"expected": tr["expected_answer"]}, mode="pending-commit",
+                 context={"criteria": ["correctness", "example_application"]}, hints=tr.get("hints") or [])
+        db.add(t)
+        db.flush()
+        _charge(db, s, "transfer")
+        return {"task_id": t.id}
     exclude = [t.solution.get("expression", "") for t in tasks_of(db, s) if t.stage == "practice"]
     exclude += [i.expression for i in ingestion.all_items(db, s.owner_id, s.subject_id) if i.expression]
     exclude += ["2(x + 3)", "5(a - 1)", "3(x + 2)"]  # expressions used in the explanation prompt/course examples
@@ -380,8 +430,8 @@ def help_step(db: Session, owner_id: str, task_id: str, kind: str, confirm_revea
 def _help_payload(t: Task, ev: HelpEvent) -> dict:
     return {"task_id": t.id, "level": ev.level, "step": ev.kind, "label": generators.LADDER_LABELS.get(ev.kind, ev.kind),
             "content": ev.content, "citations": ev.citations, "revealed": t.revealed, "help_level": t.help_level,
-            "next_requires_confirmation": t.help_level == 4 and t.kind == "expand",
-            "max_level": 5 if t.kind == "expand" else 3}
+            "next_requires_confirmation": t.help_level == 4 and policy.max_level(t) == 5,
+            "max_level": policy.max_level(t)}
 
 
 @register_demo("professor_scaffold")
@@ -392,7 +442,8 @@ def _demo_professor(v: dict) -> dict:
                 "citations": [], "on_topic": False}
     top = chunks[0]
     first = top["text"].split("\n")[0][:220]
-    return {"message": (f"Your course (page {top['page']}) says: “{first}”. "
+    where = f"Your course (page {top['page']})" if top.get("page") else f"An open source ({top.get('source')})"
+    return {"message": (f"{where} says: “{first}”. "
                         "Try connecting that to the step you are on, then attempt it yourself."),
             "citations": [top["chunk_id"]], "on_topic": True}
 
@@ -412,9 +463,12 @@ def professor_ask(db: Session, owner_id: str, subject_id: str, question: str, ta
         return {"message": prior.content, "citations": prior.citations, "on_topic": bool(prior.citations), "replayed": True}
     res_q = billing.reserve(db, owner_id, "professor_question", 1, idempotency_key=f"prof:{idempotency_key}",
                             intent={"kind": "professor_question", "subject_id": subject_id})
-    hits = ingestion.retrieve(db, owner_id, subject_id, question + " " + (task.prompt if task else ""), k=3)
-    chunks = [{"chunk_id": c.id, "page": c.page_no, "text": c.text, "score": round(sc, 3)} for sc, c in hits]
-    on_topic = bool(chunks) and chunks[0]["score"] >= 0.12
+    from thinkfirst.modules.rag import service as rag
+
+    concept_title = ingestion.get_concept(db, owner_id, get_session(db, owner_id, task.session_id).concept_id).title if task else None
+    g = rag.hybrid(db, owner_id, subject_id, question + " " + (task.prompt if task else ""), fetch_query=concept_title)
+    chunks = [{"chunk_id": c["chunk_id"], "page": c.get("page"), "source": c.get("title"), "text": c["quote"]} for c in g["citations"]]
+    on_topic = bool(chunks)
     result = llm.run(db, "professor_scaffold", {"student_question": question, "course_chunks": chunks if on_topic else [],
                                                 "help_level": "strategy", "task_prompt": task.prompt if task else "",
                                                 "on_topic_hint": on_topic}, owner_id=owner_id, purpose="professor")
@@ -427,12 +481,12 @@ def professor_ask(db: Session, owner_id: str, subject_id: str, question: str, ta
         hidden = [str(task.solution.get(k, "")) for k in ("expanded", "target")]
         if any(h and h.replace(" ", "") in message.replace(" ", "") for h in hidden):
             message = "I can't give the final answer to your current task, but the help steps can guide the next move."
-    citations = [{"chunk_id": c["chunk_id"], "page": c["page"], "quote": c["text"][:240]} for c in cites]
+    citations = [{"chunk_id": c["chunk_id"], "page": c.get("page"), "source": c.get("source"), "quote": c["text"][:240]} for c in cites]
     db.add(HelpEvent(owner_id=owner_id, task_id=task.id if task else "none", level=0, kind="professor",
                      content=message, citations=citations, idempotency_key=f"prof:{idempotency_key}"))
     billing.consume(db, res_q, 1, "professor_question", idempotency_key=f"charge:prof:{idempotency_key}")
     return {"message": message, "citations": citations, "on_topic": bool(out.get("on_topic", on_topic)),
-            "label": result.label, "simulated": result.simulated}
+            "label": result.label, "simulated": result.simulated, "retrieval_route": g["route"]}
 
 
 # ------------------------------------------------------------------ submissions
@@ -462,7 +516,7 @@ def submit_answer(db: Session, owner_id: str, task_id: str, answer: str, expecte
     if replay is not None:
         return {"task": task_public(db, t), "assessment": assessment.assessment_public(
             assessment.assessment_for_attempt(db, replay.id)), "replayed": True}
-    if t.kind not in ("expand", "equivalent_forms"):
+    if t.kind not in ("expand", "equivalent_forms", "expression", "short_answer"):
         raise ValidationFailed("Use the explanation flow for this task.")
     if t.status in policy.TERMINAL_TASK:
         raise Conflict("This attempt already finished.", code="TASK_FINISHED")
@@ -479,11 +533,16 @@ def submit_answer(db: Session, owner_id: str, task_id: str, answer: str, expecte
                                            idempotency_key=key)
     if t.kind == "expand":
         result = mathcheck.grade_expand(answer, t.solution["expression"])
-    else:
+        a = assessment.save_symbolic(db, attempt, result)
+    elif t.kind == "equivalent_forms":
         result = mathcheck.grade_equivalent_forms(answer, t.solution["target"])
-    a = assessment.save_symbolic(db, attempt, result)
+        a = assessment.save_symbolic(db, attempt, result)
+    else:
+        a = assessment.grade_generated(db, attempt, question=t.prompt, expected=t.solution.get("expected", ""),
+                                       kind=t.kind, answer=answer, transfer=t.stage == "transfer")
+        result = a
     t.revision += 1
-    if t.kind == "expand":
+    if t.stage == "practice":
         if result.outcome == "demonstrated":
             t.status = "committed"
         elif result.outcome in ("not_demonstrated", "partial"):
@@ -492,6 +551,10 @@ def submit_answer(db: Session, owner_id: str, task_id: str, answer: str, expecte
         if result.outcome != "unscored":
             t.status = "committed"  # terminal: unlocks; submission alone of an unscored answer does not
     _publish(db, s, t, attempt, a, t.stage)
+    from thinkfirst.modules.diagnostic import service as diagnostic
+
+    diagnostic.diagnose_answer(db, owner_id, subject_id=s.subject_id, concept_id=s.concept_id, task_id=t.id,
+                               attempt_id=attempt.id, stage=t.stage, assessment=assessment.assessment_public(a) or {})
     return {"task": task_public(db, t), "assessment": assessment.assessment_public(a), "replayed": False}
 
 
@@ -564,8 +627,9 @@ def save_reflection(db: Session, owner_id: str, session_id: str, text: str, skip
 
 def book_review(db: Session, owner_id: str, session_id: str, due_on: date | None) -> dict:
     s = get_session(db, owner_id, session_id)
-    rv = learner.book_review(db, owner_id, subject_id=s.subject_id, concept_id=s.concept_id, session_id=s.id,
-                             due_on=due_on or learner.default_review_date())
+    if due_on is None:
+        due_on = _adaptive_review(learner.evidence_for_session(db, owner_id, s.id))[0]
+    rv = learner.book_review(db, owner_id, subject_id=s.subject_id, concept_id=s.concept_id, session_id=s.id, due_on=due_on)
     return learner.review_public(rv) or {}
 
 
@@ -578,6 +642,12 @@ def complete(db: Session, owner_id: str, session_id: str) -> StudySession:
         if res is not None:
             billing.release(db, res)  # unused bundle units return to the allowance
     return s
+
+
+def _adaptive_review(evs) -> tuple:
+    from thinkfirst.modules.adaptation import service as adaptation
+
+    return adaptation.review_interval({e.label for e in evs if e.status != "deleted" and e.outcome in ("demonstrated", "exposure")})
 
 
 def summary(db: Session, owner_id: str, session_id: str) -> dict:
@@ -599,42 +669,27 @@ def summary(db: Session, owner_id: str, session_id: str) -> dict:
         "retention": "Retention not checked yet — only a later review without help can show it.",
         "reflection": {"text": refl.text, "skipped": refl.skipped} if refl else None,
         "review": learner.review_public(review),
-        "default_review_on": learner.default_review_date().isoformat(),
+        "default_review_on": _adaptive_review(evs)[0].isoformat(),
+        "review_reason": _adaptive_review(evs)[1],
         "parent_session_id": s.parent_session_id,
     }
 
 
 def today(db: Session, owner_id: str) -> dict:
+    """G01: the adaptation engine decides the next action; reviews and subjects listed alongside."""
+    from thinkfirst.modules.adaptation import service as adaptation
+
     subjects = workspaces.list_subjects(db, owner_id)
     unfinished = db.scalar(select(StudySession).where(StudySession.owner_id == owner_id,
                                                       StudySession.status.in_(("active", "paused")))
                            .order_by(StudySession.updated_at.desc()))
-    reviews = [learner.review_public(r) for r in learner.reviews(db, owner_id)]
-    next_action = None
+    resume = None
     if unfinished is not None:
         c = ingestion.get_concept(db, owner_id, unfinished.concept_id)
-        next_action = {"kind": "resume", "session_id": unfinished.id, "subject_id": unfinished.subject_id,
-                       "concept_title": c.title, "stage": unfinished.stage, "status": unfinished.status,
-                       "reason": f"You {'paused' if unfinished.status == 'paused' else 'left'} “{c.title}” at the {unfinished.stage} step."}
-    else:
-        ready = [sub for sub in subjects if sub.status == "ready"]
-        processing = [sub for sub in subjects if sub.status != "ready"]
-        if ready:
-            sub = ready[0]
-            concepts = [c for c in ingestion.active_concepts(db, owner_id, sub.id) if not c.is_foundation]
-            sums = learner.concept_summaries(db, owner_id, sub.id)
-            pick = next((c for c in concepts if "applied_independently" not in sums.get(c.id, {}).get("states", [])), None)
-            if pick is None and concepts:
-                pick = concepts[0]
-            if pick:
-                next_action = {"kind": "start", "subject_id": sub.id, "concept_id": pick.id, "concept_title": pick.title,
-                               "reason": f"Next concept on your {sub.name} roadmap without independent application yet."}
-        elif processing:
-            sub = processing[0]
-            next_action = {"kind": "setup", "subject_id": sub.id, "reason": f"“{sub.name}” is waiting for scope confirmation."}
-    if next_action is None:
-        next_action = {"kind": "add_subject", "reason": "Add a course to get a roadmap."}
-    return {"next_action": next_action, "reviews": reviews,
+        resume = {"session_id": unfinished.id, "subject_id": unfinished.subject_id, "concept_title": c.title,
+                  "stage": unfinished.stage, "status": unfinished.status}
+    return {"next_action": adaptation.next_action(db, owner_id, resume),
+            "reviews": [learner.review_public(r) for r in learner.reviews(db, owner_id)],
             "subjects": [workspaces.subject_public(x) for x in subjects]}
 
 
@@ -661,7 +716,7 @@ def task_public(db: Session, t: Task, hide_feedback: bool = False) -> dict:
         "context": t.context, "origin": t.origin, "origin_detail": t.origin_detail, "task_family_id": t.task_family_id,
         "novelty": t.novelty if t.stage == "transfer" else None, "mode": t.mode, "status": t.status,
         "revision": t.revision, "help_level": t.help_level, "revealed": t.revealed,
-        "max_help_level": 5 if t.kind == "expand" else 3, "targets_criterion": t.targets_criterion,
+        "max_help_level": policy.max_level(t), "targets_criterion": t.targets_criterion,
         "followup_question_id": t.followup_question_id,
         "help_events": [] if hide_feedback else [{"level": h.level, "step": h.kind,
                                                   "label": generators.LADDER_LABELS.get(h.kind, h.kind),
@@ -689,11 +744,22 @@ def session_view(db: Session, owner_id: str, session_id: str) -> dict:
     view["tasks"] = [task_public(db, t, hide_feedback=hide and t.id != (lock.id if lock else None)) for t in tasks]
     view["current_task"] = task_public(db, cur, hide_feedback=hide and cur.id != lock.id) if cur and lock else (
         task_public(db, cur) if cur else None)
+    pack_content, pack_label = _pack_content(db, s)
+    from thinkfirst.modules.tutor import packs as _packs
+
+    _p = _packs.get_pack(db, owner_id, s.concept_id)
+    view["pack_status"] = _p.status if _p else "missing"
     if s.stage == "learn" and not hide:
         view["lesson"] = {"excerpt": ingestion.concept_excerpt(db, owner_id, concept),
+                          "generated": ({**pack_content["lesson"], "label": pack_label, "sources": pack_content.get("sources", [])}
+                                        if pack_content and pack_content["lesson"].get("summary") else None),
                           "example": {"text": "Worked example from a different expression: 4(y − 2) = 4·y − 4·2 = 4y − 8.",
-                                      "origin": "ai-generated"} if "distribut" in concept.title.lower() else None,
-                          "retrieval_prompt": "Before moving on: in your own words, what happens to each term inside the brackets?"}
+                                      "origin": "ai-generated"} if "distribut" in concept.title.lower() else (
+                              {"text": pack_content["lesson"]["example_problem"] + "\n" + pack_content["lesson"]["example_steps"],
+                               "origin": "ai-generated"} if pack_content and pack_content["lesson"].get("example_problem") else None),
+                          "retrieval_prompt": ("Before moving on: in your own words, what happens to each term inside the brackets?"
+                                               if "distribut" in concept.title.lower() else
+                                               "Before moving on: in your own words, what is the key idea?")}
     elif s.stage == "learn":
         view["lesson"] = {"locked": True}
     pending = None
@@ -702,4 +768,18 @@ def session_view(db: Session, owner_id: str, session_id: str) -> dict:
         job = db.scalar(select(jobs.Job).where(jobs.Job.idempotency_key == key))
         pending = jobs.job_public(job) if job else None
     view["pending_job"] = pending
+    from thinkfirst.modules.adaptation import service as adaptation
+
+    view["nudge"] = None if hide else adaptation.session_nudge(db, owner_id, s.subject_id, s.concept_id)
     return view
+
+
+def unfinished_for_subject(db: Session, owner_id: str, subject_id: str) -> dict | None:
+    """Resume pointer for a course: latest active/paused session in this subject."""
+    s = db.scalar(select(StudySession).where(StudySession.owner_id == owner_id, StudySession.subject_id == subject_id,
+                                             StudySession.status.in_(("active", "paused", "draft")))
+                  .order_by(StudySession.updated_at.desc()))
+    if s is None:
+        return None
+    c = ingestion.get_concept(db, owner_id, s.concept_id)
+    return {"session_id": s.id, "concept_id": s.concept_id, "concept_title": c.title, "stage": s.stage, "status": s.status}

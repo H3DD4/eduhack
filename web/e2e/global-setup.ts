@@ -9,7 +9,7 @@ export default function globalSetup() {
   const db = path.join(apiDir, "e2e.db");
   if (fs.existsSync(db)) fs.rmSync(db);
   const env = { ...process.env, DATABASE_URL: `sqlite:///${db.replace(/\\/g, "/")}`, LOCAL_STORAGE_DIR: path.join(apiDir, ".storage-e2e"),
-    LLM_PROVIDER: "demo", STT_PROVIDER: "demo", JOB_MODE: "inline", GEMINI_API_KEY: "", GROQ_API_KEY: "" };
+    LLM_PROVIDER: "demo", STT_PROVIDER: "demo", JOB_MODE: "inline", GEMINI_API_KEY: "", GROQ_API_KEY: "", RESOURCE_DISCOVERY: "false" };
   execFileSync(py, ["-m", "thinkfirst.seed", "--reset"], { cwd: apiDir, env, stdio: "inherit" });
   const out = path.join(__dirname, ".fixtures");
   fs.mkdirSync(out, { recursive: true });

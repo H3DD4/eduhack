@@ -103,4 +103,79 @@ REGISTRY: dict[str, PromptTemplate] = {
                 "required": ["key", "title", "objective", "prerequisites", "page", "is_foundation", "uncertain"]}}},
             "required": ["no", "title", "concepts"]}}}, "required": ["units"]},
     ),
+    "generate_topic_scope": PromptTemplate(
+        id="generate_topic_scope",
+        version="v1",
+        system=(
+            "You design a short university-level learning roadmap for the topic the student typed. Return 2-3 units with "
+            "3-4 concepts each, in teaching order. Keys look like '1.1', '1.2', '2.1'; foundations (optional refreshers) use "
+            "keys 'F1', 'F2' and is_foundation=true. Each concept has a one-sentence measurable objective and prerequisite "
+            "keys. Use the language of the topic text (French, English or Arabic). Set page=0 and uncertain=true. "
+            + UNTRUSTED_NOTE
+        ),
+        output_schema={"type": "object", "properties": {
+            "title": {"type": "string"},
+            "units": {"type": "array", "items": {"type": "object", "properties": {
+                "no": {"type": "integer"}, "title": {"type": "string"},
+                "concepts": {"type": "array", "items": {"type": "object", "properties": {
+                    "key": {"type": "string"}, "title": {"type": "string"}, "objective": {"type": "string"},
+                    "prerequisites": {"type": "array", "items": {"type": "string"}},
+                    "is_foundation": {"type": "boolean"}},
+                    "required": ["key", "title", "objective", "prerequisites", "is_foundation"]}}},
+                "required": ["no", "title", "concepts"]}}},
+            "required": ["title", "units"]},
+    ),
+    "generate_concept_pack": PromptTemplate(
+        id="generate_concept_pack",
+        version="v1",
+        system=(
+            "You write a compact, accurate study pack for ONE concept for a university student. ThinkFirst makes the "
+            "student think: lessons are short, practice questions have a single checkable answer, and hints climb "
+            "gradually without giving the answer before the last level. Produce: a lesson (summary <= 90 words, 3-4 key "
+            "points, one worked example on a DIFFERENT problem than the practice), 2 practice questions, an explain-back "
+            "prompt, predeclared rubric essentials (short phrases) for correctness, essential_coverage, why_relationships, "
+            "example_application and limits (limits may be an empty list if not applicable), one follow-up question per "
+            "criterion, and one transfer task that applies the concept in a NEW context with a different problem than the "
+            "practice questions. answer_kind is 'expression' only when the answer is a single algebraic expression or "
+            "number (write it with ^ for powers and * for products, e.g. 3*x + 12); otherwise 'text'. Each hints list has "
+            "exactly 5 items: clarify the task, strategy cue, first sub-step, a DIFFERENT worked example, full worked "
+            "solution. Use the student's language. " + UNTRUSTED_NOTE
+        ),
+        output_schema={"type": "object", "properties": {
+            "lesson": {"type": "object", "properties": {
+                "summary": {"type": "string"}, "key_points": {"type": "array", "items": {"type": "string"}},
+                "example_problem": {"type": "string"}, "example_steps": {"type": "string"}},
+                "required": ["summary", "key_points", "example_problem", "example_steps"]},
+            "practice": {"type": "array", "items": {"type": "object", "properties": {
+                "prompt": {"type": "string"}, "answer_kind": {"type": "string", "enum": ["expression", "text"]},
+                "expected_answer": {"type": "string"}, "hints": {"type": "array", "items": {"type": "string"}}},
+                "required": ["prompt", "answer_kind", "expected_answer", "hints"]}},
+            "explain_prompt": {"type": "string"},
+            "essentials": {"type": "object", "properties": {k: {"type": "array", "items": {"type": "string"}} for k in (
+                "correctness", "essential_coverage", "why_relationships", "example_application", "limits")},
+                "required": ["correctness", "essential_coverage", "why_relationships", "example_application", "limits"]},
+            "followups": {"type": "object", "properties": {k: {"type": "string"} for k in (
+                "correctness", "essential_coverage", "why_relationships", "example_application", "limits")}},
+            "transfer": {"type": "object", "properties": {
+                "prompt": {"type": "string"}, "answer_kind": {"type": "string", "enum": ["expression", "text"]},
+                "expected_answer": {"type": "string"}, "why_new": {"type": "string"},
+                "hints": {"type": "array", "items": {"type": "string"}}},
+                "required": ["prompt", "answer_kind", "expected_answer", "why_new", "hints"]}},
+            "required": ["lesson", "practice", "explain_prompt", "essentials", "followups", "transfer"]},
+    ),
+    "grade_short_answer": PromptTemplate(
+        id="grade_short_answer",
+        version="v1",
+        system=(
+            "Judge whether the student's answer to the question is correct, using the reference answer. Accept "
+            "equivalent wording, notation and language (French/English/Arabic). Use 'uncertain' when the answer is "
+            "ambiguous or you cannot tell. Feedback must NOT reveal the reference answer; point to the next move instead. "
+            "If incorrect, name a possible misconception (or null) and ask ONE short targeted question. " + UNTRUSTED_NOTE
+        ),
+        output_schema={"type": "object", "properties": {
+            "verdict": {"type": "string", "enum": ["correct", "partially_correct", "incorrect", "uncertain"]},
+            "feedback": {"type": "string"}, "misconception": {"type": ["string", "null"]},
+            "targeted_question": {"type": ["string", "null"]}},
+            "required": ["verdict", "feedback"]},
+    ),
 }

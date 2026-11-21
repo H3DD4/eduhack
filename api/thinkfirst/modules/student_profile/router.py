@@ -10,7 +10,7 @@ from thinkfirst.core.deps import current_user
 from thinkfirst.modules.assessment import service as assessment
 from thinkfirst.modules.identity.models import User
 from thinkfirst.modules.ingestion import service as ingestion
-from thinkfirst.modules.learner_model import service as learner
+from thinkfirst.modules.student_profile import service as learner
 from thinkfirst.modules.workspaces import service as workspaces
 
 router = APIRouter(tags=["learner_model"])
@@ -63,16 +63,6 @@ def delete_attempt(evidence_id: str, user: User = Depends(current_user), db: Ses
                     "Backups are not covered in this build (see OPEN_QUESTIONS)."}
 
 
-@router.post("/subjects/{subject_id}/diagnostic/skip")
-def skip_diagnostic(subject_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """C03/UC07: skipping records insufficient evidence — never zero ability, never locks concepts."""
-    workspaces.get_subject(db, user.id, subject_id)
-    ev = learner.record(db, owner_id=user.id, idempotency_key=f"diagnostic-skip:{subject_id}", subject_id=subject_id,
-                        stage="diagnostic", label="insufficient_evidence", outcome="unscored",
-                        summary="Baseline skipped: insufficient evidence (not a low score).", assistance={})
-    return {"evidence": learner.evidence_public(ev)}
-
-
 @router.get("/reviews")
 def reviews(user: User = Depends(current_user), db: Session = Depends(get_db)):
     return {"reviews": [learner.review_public(r) for r in learner.reviews(db, user.id)]}
@@ -90,3 +80,13 @@ def overall(user: User = Depends(current_user), db: Session = Depends(get_db)):
                 counts[st] = counts.get(st, 0) + 1
         out.append({"subject": workspaces.subject_public(s), "concepts_with_evidence": len(sums), "state_counts": counts})
     return {"subjects": out, "profile_note": "Learning-profile observations arrive in M3."}
+
+
+@router.get("/me/memory")
+def my_memory(subject_id: str | None = None, concept_id: str | None = None, user: User = Depends(current_user),
+              db: Session = Depends(get_db)):
+    """Historique & mémoire: the student's own learning timeline (answers, errors, misconceptions, help)."""
+    from thinkfirst.modules.memory import service as memory
+
+    return {"events": [memory.event_public(e) for e in memory.history(db, user.id, subject_id, concept_id)],
+            "recurring": memory.recurring_misconceptions(db, user.id, subject_id) if subject_id else []}

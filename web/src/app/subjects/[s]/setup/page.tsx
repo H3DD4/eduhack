@@ -1,6 +1,7 @@
 "use client";
 // C02 Processing and scope confirmation — UC03/UC04/UC06. Actual phases only; partial success retained;
 // only confirmed sources feed tasks.
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
@@ -32,7 +33,16 @@ export default function Setup() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState<string | null>(null);
-  const processing = data?.sources?.some((x: any) => ["queued", "extracting"].includes(x.status));
+  const processing = data?.sources?.some((x: any) => ["queued", "extracting"].includes(x.status)) || data?.subject?.status === "processing";
+  const [customize, setCustomize] = useState(false);
+  const topicMode = data?.subject?.origin === "guided_topic" && !customize;
+  const startLearning = async () => {
+    setBusy(true);
+    try {
+      await api(`/subjects/${s}/start`, { method: "POST" });
+      router.push(`/subjects/${s}/roadmap`);
+    } catch (e: any) { setErr(e.message); setBusy(false); }
+  };
 
   useEffect(() => {
     if (!processing) return;
@@ -75,7 +85,43 @@ export default function Setup() {
         {!data && !error && <div className="card mt-6"><Skeleton /></div>}
         {error && <div className="mt-6"><ErrorBox message="Setup could not load." onRetry={reload} /></div>}
         {err && <div className="mt-4"><ErrorBox message={err} /></div>}
-        {data && (
+        {data && topicMode && (
+          <div className="mt-6 space-y-6">
+            {processing && (
+              <div className="hero p-8" aria-busy="true"><div className="relative z-10 space-y-2">
+                <p className="text-section">Building your roadmap…</p>
+                <p className="muted">Finding openly licensed sources and designing units, levels and checks. This takes a few seconds.</p>
+              </div></div>
+            )}
+            {!processing && !data.proposal && (
+              <ErrorBox title="Could not build a roadmap" message={data.topic_job?.result?.error === "AI_NOT_CONFIGURED" ? "No AI service is configured, so only the algebra starter topic is available." : "The AI service did not return a usable roadmap. Try again or rephrase the topic."}>
+                <Link className="btn-secondary" href="/subjects/new">Try another topic</Link>
+              </ErrorBox>
+            )}
+            {data.proposal && (
+              <>
+                <p className="text-meta"><span className="pill text-help bg-help-surface">✦ {data.proposal.label}</span></p>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {Object.values(concepts.reduce((acc: any, c: any) => { (acc[c.unit_no] ||= { no: c.unit_no, title: c.unit_title, items: [] }).items.push(c); return acc; }, {})).map((u: any) => (
+                    <div key={u.no} className="game-card p-5">
+                      <p className="unit-banner inline-block px-3 py-1 text-meta font-bold">Unit {u.no}</p>
+                      <h2 className="mt-2 text-section !text-[1.25rem]">{u.title}</h2>
+                      <ol className="mt-3 space-y-2">{u.items.map((c: any) => (
+                        <li key={c.id} className="flex gap-3"><span className={`node !h-9 !w-9 !text-meta !shadow-none ${c.is_foundation ? "node-foundation" : "node-new"}`} aria-hidden>{c.key}</span>
+                          <span><span className="font-bold">{c.title}</span>{c.is_foundation && <span className="text-meta text-ink-muted"> · optional refresher</span>}<br /><span className="text-meta text-ink-muted">{c.objective}</span></span></li>
+                      ))}</ol>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <button className="btn-primary" onClick={startLearning} disabled={busy}>{busy ? "Starting…" : "Start learning"}</button>
+                  <button className="btn-secondary" onClick={() => setCustomize(true)}>Customize roadmap</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        {data && !topicMode && (
           <div className="mt-6 grid gap-6 xl:grid-cols-[300px_1fr_320px]">
             <section aria-labelledby="files-h" className="space-y-3">
               <h2 id="files-h" className="text-section">Files</h2>

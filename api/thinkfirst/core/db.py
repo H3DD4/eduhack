@@ -32,6 +32,7 @@ MODULE_SCHEMAS = [
     "llm_gateway",
     "knowledge_library",
     "admin",
+    "memory",
 ]
 
 current_user_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("current_user_id", default=None)

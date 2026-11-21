@@ -85,7 +85,7 @@ test("save and pause from F01 returns to Today with Resume; resume restores the 
   await page.getByRole("button", { name: "Focus" }).click();
   await page.getByRole("button", { name: "Save and pause" }).click();
   await expect(page).toHaveURL(/\/today/);
-  await page.getByRole("link", { name: "Resume" }).click();
+  await page.getByRole("link", { name: "▶ Resume", exact: true }).click(); // hero CTA (course card also offers Resume)
   await page.getByRole("button", { name: "Resume" }).click();
   await expect(page.getByLabel("Your answer")).toHaveValue("2x + 6");
 });

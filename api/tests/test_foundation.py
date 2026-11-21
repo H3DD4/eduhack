@@ -85,29 +85,35 @@ def test_gateway_falls_back_and_never_silently_uses_demo(db, monkeypatch):
     monkeypatch.setattr(s, "llm_provider", "auto")
     monkeypatch.setattr(s, "gemini_api_key", "x")
     monkeypatch.setattr(s, "groq_api_key", "y")
-    assert llm.provider_chain() == ["gemini", "groq"]
+    llm._cooldown_until.clear()
+    assert llm.provider_chain() == ["groq", "gemini"]
     calls = []
 
     def bad(template, text):
-        calls.append("gemini")
+        calls.append("groq")
         raise llm._ProviderError("HTTP_500")
 
     def good(template, text):
-        calls.append("groq")
+        calls.append("gemini")
         return {"message": "m", "citations": [], "on_topic": True}, 10, 5
 
-    monkeypatch.setitem(llm._CALLERS, "gemini", bad)
-    monkeypatch.setitem(llm._CALLERS, "groq", good)
+    monkeypatch.setitem(llm._CALLERS, "groq", bad)
+    monkeypatch.setitem(llm._CALLERS, "gemini", good)
     res = llm.run(db, "professor_scaffold", {"student_question": "q"}, owner_id="u", purpose="t")
-    assert res.status == "ok" and res.provider == "groq" and not res.simulated and calls == ["gemini", "groq"]
+    assert res.status == "ok" and res.provider == "gemini" and not res.simulated and calls == ["groq", "gemini"]
+    # circuit breaker: the failing provider is skipped on the next call
+    llm._cache.clear()
+    llm.run(db, "professor_scaffold", {"student_question": "q-again"}, owner_id="u", purpose="t")
+    assert calls == ["groq", "gemini", "gemini"]
 
     def invalid(template, text):
         return {"nope": 1}, 1, 1
 
-    monkeypatch.setitem(llm._CALLERS, "groq", invalid)
+    monkeypatch.setitem(llm._CALLERS, "gemini", invalid)
     llm._cache.clear()
     res = llm.run(db, "professor_scaffold", {"student_question": "q2"}, owner_id="u", purpose="t")
     assert res.status == "invalid_output" and res.output is None  # callers treat as unscored, not demo, not zero
+    llm._cooldown_until.clear()
 
 
 def test_job_idempotency_and_cancel_rejects_late_result(db):

@@ -89,3 +89,19 @@ class Reflection(Base, OwnedMixin, TimestampMixin):
     session_id: Mapped[str] = mapped_column(String(36), unique=True)
     text: Mapped[str] = mapped_column(Text, default="")
     skipped: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ConceptPack(Base, OwnedMixin, TimestampMixin):
+    """AI-generated study pack for one concept (lesson, practice, rubric essentials, follow-ups, transfer).
+    Always labelled ai-generated; hints/solutions inside are SERVER-ONLY until disclosed through the ladder."""
+
+    __tablename__ = "concept_packs"
+    __table_args__ = SCHEMA
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    subject_id: Mapped[str] = mapped_column(String(36), index=True)
+    concept_id: Mapped[str] = mapped_column(String(36), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | ready | failed
+    content: Mapped[dict] = mapped_column(JSON, default=dict)
+    label: Mapped[str] = mapped_column(String(200), default="")
+    provider: Mapped[str] = mapped_column(String(32), default="")

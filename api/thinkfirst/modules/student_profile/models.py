@@ -1,4 +1,4 @@
-"""learner_model (basic this run): evidence records/receipts and review dates."""
+"""student_profile (Profil élève, PostgreSQL schema `learner_model`): evidence receipts and review dates."""
 
 from __future__ import annotations
 

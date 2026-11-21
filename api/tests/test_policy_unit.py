@@ -11,7 +11,7 @@ from thinkfirst.modules.assessment.explanation import (
     validate_explanation_output,
 )
 from thinkfirst.modules.assessment.rubrics import DISTRIBUTIVE
-from thinkfirst.modules.learner_model.service import label_for
+from thinkfirst.modules.student_profile.service import label_for
 from thinkfirst.modules.tutor import policy
 from thinkfirst.modules.tutor.generators import expand_hints, transfer_task
 from thinkfirst.modules.tutor.models import Task
@@ -115,7 +115,7 @@ def test_followup_targets_weakest_and_is_deterministic():
 # ---------------- help ladder + capabilities ----------------
 
 def _task(**kw) -> Task:
-    base = {"kind": "expand", "help_level": 0, "mode": "practice", "status": "open", "stage": "practice"}
+    base = {"kind": "expand", "help_level": 0, "mode": "practice", "status": "open", "stage": "practice", "hints": ["h"] * 5}
     base.update(kw)
     return Task(**base)
 
@@ -139,7 +139,7 @@ def test_hints_never_include_solution_before_reveal_level():
 
 
 def test_capabilities_during_independent_transfer():
-    t = _task(kind="equivalent_forms", stage="transfer", mode="independent-transfer")
+    t = _task(kind="equivalent_forms", stage="transfer", mode="independent-transfer", hints=[])
     caps = policy.capabilities(t, lock=t)
     assert not caps["canTutor"] and not caps["canReadSources"] and caps["canSubmit"]
 

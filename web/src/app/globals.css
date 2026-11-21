@@ -101,3 +101,64 @@ textarea.field { min-height: 120px; }
 
 .math-scroll { overflow-x: auto; max-width: 100%; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+/* ---------- Game layer (Atlas Studio "expedition" theme) ---------- */
+:root {
+  --night: #12303A;
+  --night-2: #1C4552;
+  --sky-1: #E6F4F1;
+  --sky-2: #EEEDFA;
+}
+.hero {
+  background: radial-gradient(1200px 300px at 0% 0%, #2B7A72 0%, transparent 60%),
+              linear-gradient(135deg, var(--night) 0%, var(--night-2) 55%, #2E3A78 100%);
+  color: #fff; border-radius: 24px; position: relative; overflow: hidden;
+}
+.hero::after { /* contour lines, decorative */
+  content: ""; position: absolute; inset: 0; opacity: .18; pointer-events: none;
+  background-image: repeating-radial-gradient(circle at 85% 30%, transparent 0 18px, rgba(255,255,255,.6) 18px 19px);
+}
+.hero .muted { color: #CFE6E2; }
+.game-card {
+  background: var(--surface); border: 2px solid var(--border); border-radius: 20px;
+  box-shadow: 0 6px 0 var(--border); transition: transform 120ms var(--ease), box-shadow 120ms var(--ease);
+}
+a.game-card:hover, button.game-card:hover { transform: translateY(-2px); box-shadow: 0 8px 0 var(--border); }
+a.game-card:active, button.game-card:active { transform: translateY(3px); box-shadow: 0 3px 0 var(--border); }
+.chip {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 16px; border-radius: 999px;
+  background: var(--surface); border: 2px solid var(--border); font-weight: 700; box-shadow: 0 4px 0 var(--border);
+}
+.chip:hover { border-color: var(--action); }
+.map-bg {
+  background:
+    radial-gradient(circle at 20% 10%, rgba(0,121,107,.08), transparent 40%),
+    radial-gradient(circle at 80% 60%, rgba(75,82,163,.08), transparent 40%),
+    repeating-linear-gradient(0deg, transparent 0 39px, rgba(24,40,45,.04) 39px 40px),
+    repeating-linear-gradient(90deg, transparent 0 39px, rgba(24,40,45,.04) 39px 40px),
+    var(--canvas);
+  border-radius: 24px; border: 2px solid var(--border);
+}
+.node {
+  width: 84px; height: 84px; border-radius: 999px; display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 1.25rem; border: 3px solid var(--ink); box-shadow: 0 7px 0 var(--ink);
+  transition: transform 120ms var(--ease), box-shadow 120ms var(--ease);
+}
+.node:hover { transform: translateY(-3px) scale(1.04); }
+.node:active { transform: translateY(4px); box-shadow: 0 3px 0 var(--ink); }
+.node-new { background: var(--surface); color: var(--ink); }
+.node-progress { background: var(--help-surface); color: var(--help); }
+.node-applied { background: var(--action); color: #fff; }
+.node-foundation { width: 60px; height: 60px; font-size: .95rem; background: var(--discovery); color: var(--ink); box-shadow: 0 5px 0 var(--ink); }
+.node-current { outline: 6px solid rgba(241,187,88,.55); outline-offset: 4px; }
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-motion="reduce"]) .node-current { animation: glow 2.4s var(--ease) infinite; }
+}
+@keyframes glow { 0%,100% { outline-color: rgba(241,187,88,.55); } 50% { outline-color: rgba(241,187,88,.15); } }
+.ring { --p: 0; width: 56px; height: 56px; border-radius: 999px;
+  background: conic-gradient(var(--action) calc(var(--p) * 1%), var(--border) 0); display: grid; place-items: center; }
+.ring > span { width: 42px; height: 42px; border-radius: 999px; background: var(--surface); display: grid; place-items: center; font-size: .8rem; font-weight: 800; }
+.unit-banner { background: linear-gradient(90deg, var(--action) 0%, #2E6FA0 100%); color: #fff; border-radius: 18px; box-shadow: 0 6px 0 var(--action-base); }
+.sidebar-game { background: linear-gradient(180deg, var(--night) 0%, #173B47 100%); color: #E8F2F0; }
+.sidebar-game a[aria-current="page"] { background: rgba(255,255,255,.12); color: #fff; box-shadow: inset 4px 0 0 var(--discovery); }
+.sidebar-game a:hover { background: rgba(255,255,255,.08); }

@@ -1,18 +1,34 @@
 "use client";
-// G01 Today — one obvious next action with its reason (UC02, UC10). No invented urgency.
+// G01 Today — hero with one next action (resume first), learn-anything launcher, courses with progress.
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { AppShell } from "@/components/AppShell";
-import { Companion, ErrorBox, Skeleton } from "@/components/ui";
+import { AppShell, useMe } from "@/components/AppShell";
+import { CourseCards } from "@/components/CourseCards";
+import { TopicLauncher } from "@/components/TopicLauncher";
+import { ErrorBox, Skeleton } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 
+function Compass({ size = 96 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true">
+      <circle cx="20" cy="20" r="18" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.35)" />
+      <polygon points="20,3 26,20 20,37 14,20" fill="#00A08D" stroke="#fff" strokeWidth="1" />
+      <polygon points="20,3 26,20 20,20" fill="#F1BB58" />
+      <polygon points="3,20 20,14 37,20 20,26" fill="none" stroke="#fff" strokeWidth="1" />
+      <circle cx="20" cy="20" r="2.5" fill="#fff" />
+    </svg>
+  );
+}
+
 export default function Today() {
   const router = useRouter();
-  const { data, error, loading, reload } = useApi<any>("/today");
+  const { me } = useMe();
+  const today = useApi<any>("/today");
+  const subjects = useApi<any>("/subjects");
   const [busy, setBusy] = useState(false);
-  const na = data?.next_action;
+  const na = today.data?.next_action;
 
   const startConcept = async () => {
     setBusy(true);
@@ -22,80 +38,77 @@ export default function Today() {
 
   return (
     <AppShell crumbs={[{ label: "Today" }]}>
-      <div className="grid gap-6 xl:grid-cols-[1fr_320px]" data-screen="G01">
-        <section aria-labelledby="next-h" className="space-y-6">
-          <h1 id="next-h" className="text-page-compact lg:text-page">Today</h1>
-          {loading && !data && <div className="card"><Skeleton /></div>}
-          {error && <ErrorBox message="Today could not load." onRetry={reload}><Link className="btn-secondary" href="/subjects">Open Subjects</Link></ErrorBox>}
-          {na && (
-            <div className="card">
-              <p className="text-meta font-semibold text-ink-muted">Next action</p>
-              {na.kind === "add_subject" && (
+      <div className="space-y-8" data-screen="G01">
+        <section className="hero p-6 md:p-10" aria-labelledby="hero-h">
+          <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center">
+            <div className="flex-1 space-y-3">
+              <p className="muted font-semibold">Hi {me?.display_name || "explorer"} 👋</p>
+              <h1 id="hero-h" className="text-page-compact md:text-page">Today</h1>
+              {today.loading && !today.data && <p className="muted">Loading your next step…</p>}
+              {na?.kind === "resume" && (
                 <>
-                  <h2 className="mt-1 text-section">Start with a course</h2>
-                  <p className="mt-2">{na.reason}</p>
-                  <Link href="/subjects/new" className="btn-primary mt-6">Add subject</Link>
+                  <p className="text-problem">Continue where you left off: <strong>{na.concept_title}</strong></p>
+                  <p className="muted text-meta">{na.reason}</p>
+                  <Link href={`/subjects/${na.subject_id}/sessions/${na.session_id}`} className="btn-primary">▶ Resume</Link>
                 </>
               )}
-              {na.kind === "resume" && (
+              {na?.kind === "start" && (
                 <>
-                  <h2 className="mt-1 text-section">Resume “{na.concept_title}”</h2>
-                  <p className="mt-2">{na.reason}</p>
-                  <Link href={`/subjects/${na.subject_id}/sessions/${na.session_id}`} className="btn-primary mt-6">Resume</Link>
-                </>
-              )}
-              {na.kind === "start" && (
-                <>
-                  <h2 className="mt-1 text-section">{na.concept_title}</h2>
-                  <p className="mt-2">{na.reason}</p>
-                  <div className="mt-6 flex flex-wrap gap-3">
+                  <p className="text-problem">Next level: <strong>{na.concept_title}</strong></p>
+                  <p className="muted text-meta">{na.reason}</p>
+                  <div className="flex flex-wrap gap-3">
                     <button className="btn-primary" onClick={startConcept} disabled={busy}>Start</button>
-                    <Link className="btn-secondary" href={`/subjects/${na.subject_id}/roadmap`}>Change action</Link>
+                    <Link className="btn-secondary !border-white/60 !bg-transparent !text-white" href={`/subjects/${na.subject_id}/roadmap`}>Change action</Link>
                   </div>
                 </>
               )}
-              {na.kind === "setup" && (
+              {na?.kind === "setup" && (
                 <>
-                  <h2 className="mt-1 text-section">Confirm your course scope</h2>
-                  <p className="mt-2">{na.reason}</p>
-                  <Link href={`/subjects/${na.subject_id}/setup`} className="btn-primary mt-6">Review scope</Link>
+                  <p className="text-problem">Your roadmap is ready to review.</p>
+                  <Link href={`/subjects/${na.subject_id}/setup`} className="btn-primary">Review roadmap</Link>
+                </>
+              )}
+              {na?.kind === "add_subject" && (
+                <>
+                  <p className="text-problem">What do you want to learn today?</p>
+                  <Link href="/subjects/new" className="btn-primary">Add subject</Link>
                 </>
               )}
             </div>
-          )}
-          {data && (
-            <section aria-labelledby="rev-h" className="card">
-              <h2 id="rev-h" className="text-section">Booked reviews</h2>
-              {data.reviews.length === 0 ? <p className="mt-2 text-ink-muted">No reviews booked yet.</p> : (
-                <ul className="mt-3 space-y-2">
-                  {data.reviews.map((r: any) => (
-                    <li key={r.id} className="flex flex-wrap items-center justify-between gap-2">
-                      <span>Review on <strong>{new Date(r.due_on + "T00:00:00").toLocaleDateString()}</strong></span>
-                      <span className="text-meta text-ink-muted">Delayed review sessions arrive in M3</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          )}
-          {data?.subjects?.length > 0 && (
-            <section aria-labelledby="sub-h">
-              <h2 id="sub-h" className="text-section">Your subjects</h2>
-              <ul className="mt-3 flex flex-wrap gap-2">
-                {data.subjects.map((s: any) => (
-                  <li key={s.id}><Link className="btn-secondary" href={`/subjects/${s.id}/${s.status === "ready" ? "roadmap" : "setup"}`}>{s.name}</Link></li>
-                ))}
-              </ul>
-            </section>
-          )}
-        </section>
-        <aside className="space-y-4">
-          <Companion message="One step at a time. Help is always available and never costs you anything." />
-          <div className="card">
-            <p className="font-semibold">Nearest exam</p>
-            <p className="mt-1 text-meta text-ink-muted">No exam date added. Exams and the planner arrive in later milestones.</p>
+            <div className="hidden shrink-0 lg:block"><Compass size={140} /></div>
           </div>
-        </aside>
+        </section>
+        {today.error && <ErrorBox message="Today could not load." onRetry={today.reload} />}
+
+        <section aria-labelledby="learn-h" className="game-card p-6">
+          <h2 id="learn-h" className="text-section">Learn anything</h2>
+          <p className="mt-1 text-ink-muted">Type a topic — ThinkFirst builds a roadmap, lessons, practice and checks. No files needed.</p>
+          <div className="mt-4"><TopicLauncher /></div>
+        </section>
+
+        <section aria-labelledby="courses-h">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 id="courses-h" className="text-section">Your courses</h2>
+            <Link href="/subjects/new" className="btn-link">+ Upload course files</Link>
+          </div>
+          {subjects.loading && !subjects.data && <Skeleton />}
+          {subjects.data?.subjects?.length === 0 && <p className="text-ink-muted">No courses yet — start one above.</p>}
+          {subjects.data && <CourseCards subjects={subjects.data.subjects} />}
+        </section>
+
+        {today.data?.reviews?.length > 0 && (
+          <section aria-labelledby="rev-h" className="game-card p-6">
+            <h2 id="rev-h" className="text-section">Booked reviews</h2>
+            <ul className="mt-3 space-y-2">
+              {today.data.reviews.map((r: any) => (
+                <li key={r.id} className="flex flex-wrap items-center justify-between gap-2">
+                  <span>Review on <strong>{new Date(r.due_on + "T00:00:00").toLocaleDateString()}</strong></span>
+                  <span className="text-meta text-ink-muted">Delayed review sessions arrive in M3</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     </AppShell>
   );

@@ -10,9 +10,10 @@ from thinkfirst.core.errors import AppError, app_error_handler
 from thinkfirst.core.logging import RequestLogMiddleware, setup_logging
 from thinkfirst.core.router import router as core_router
 from thinkfirst.modules.billing.router import router as billing_router
+from thinkfirst.modules.diagnostic.router import router as diagnostic_router
 from thinkfirst.modules.explain_back.router import router as explain_router
 from thinkfirst.modules.identity.router import router as identity_router
-from thinkfirst.modules.learner_model.router import router as learner_router
+from thinkfirst.modules.student_profile.router import router as learner_router
 from thinkfirst.modules.tutor.router import router as tutor_router
 from thinkfirst.modules.workspaces.router import router as workspaces_router
 
@@ -35,7 +36,8 @@ def create_app() -> FastAPI:
         return response
 
     app.add_middleware(RequestLogMiddleware)
-    for r in (core_router, identity_router, billing_router, workspaces_router, tutor_router, explain_router, learner_router):
+    for r in (core_router, identity_router, billing_router, workspaces_router, tutor_router, explain_router, learner_router,
+              diagnostic_router):
         app.include_router(r, prefix="/api")
 
     return app

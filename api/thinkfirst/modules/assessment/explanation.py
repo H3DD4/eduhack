@@ -42,7 +42,7 @@ def demo_assess(variables: dict[str, Any]) -> dict[str, Any]:
                         "missing_essentials": [], "rationale": "Not applicable to this task."})
             continue
         essentials = crit.get("essentials", [])
-        if not essentials:
+        if not essentials or not any(e.get("patterns") for e in essentials):
             out.append({"criterion": name, "status": "unscored", "quotes": [], "covered_essentials": [],
                         "missing_essentials": [], "rationale": "No predeclared essentials for this criterion yet."})
             continue

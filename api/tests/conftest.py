@@ -9,7 +9,7 @@ import os
 
 os.environ.update({
     "LLM_PROVIDER": "demo", "STT_PROVIDER": "demo", "JOB_MODE": "inline", "STORAGE_BACKEND": "local",
-    "GEMINI_API_KEY": "", "GROQ_API_KEY": "", "ANTHROPIC_API_KEY": "", "DEMO_MODE": "true",
+    "GEMINI_API_KEY": "", "GROQ_API_KEY": "", "ANTHROPIC_API_KEY": "", "DEMO_MODE": "true", "RESOURCE_DISCOVERY": "false",
 })
 
 import pytest  # noqa: E402

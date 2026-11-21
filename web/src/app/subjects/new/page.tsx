@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useRef, useState } from "react";
 import { AppShell, useMe } from "@/components/AppShell";
+import { TopicLauncher } from "@/components/TopicLauncher";
 import { DemoLabel, ErrorBox } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
@@ -68,8 +69,15 @@ export default function CreateSubject() {
 
   return (
     <AppShell crumbs={[{ href: "/subjects", label: "Subjects" }, { label: "New subject" }]}>
-      <form onSubmit={submit} className="max-w-prose space-y-6" data-screen="C01">
-        <h1 className="text-page-compact lg:text-page">Add a subject</h1>
+      <section className="hero mb-8 p-6 md:p-10" aria-labelledby="learn-h">
+        <div className="relative z-10 max-w-3xl">
+          <h1 id="learn-h" className="text-page-compact md:text-page">What do you want to learn?</h1>
+          <p className="muted mt-2">No files needed — type a topic and start right away.</p>
+          <div className="mt-5"><TopicLauncher dark autoFocus /></div>
+        </div>
+      </section>
+      <form onSubmit={submit} className="game-card max-w-prose space-y-6 p-6" data-screen="C01">
+        <h2 className="text-section">Or build it from your own course files</h2>
         {error && <ErrorBox message={error} />}
         <fieldset className="flex flex-wrap gap-2">
           <legend className="label">How do you want to start?</legend>

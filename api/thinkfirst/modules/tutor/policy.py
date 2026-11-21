@@ -45,14 +45,21 @@ def assert_unlocked(db: Session, owner_id: str, subject_id: str) -> None:
 
 def next_level(task: Task, kind: str, confirm_reveal: bool) -> int:
     """Return the ladder level (1..5) this request is allowed to receive."""
-    max_level = 5 if task.kind in ("expand",) else 3
+    top = max_level(task)
     if kind == "dont_know":
         level = max(task.help_level, 1) if task.help_level else 1
     else:
-        level = min(task.help_level + 1, max_level)
+        level = min(task.help_level + 1, top)
     if level == 5 and not confirm_reveal:
         raise RevealConfirmationRequired(next_level=5)
     return level
+
+
+def max_level(task: Task) -> int:
+    """5 levels (incl. confirmed worked solution) for practice items with a solution; otherwise up to 3."""
+    if task.stage == "practice" and len(task.hints or []) >= 5:
+        return 5
+    return max(1, min(3, len(task.hints or []) or 3))
 
 
 def capabilities(task: Task | None, lock: Task | None) -> dict:
@@ -64,7 +71,7 @@ def capabilities(task: Task | None, lock: Task | None) -> dict:
         "canRunCode": False,  # M7
         "canReadSources": not locked,
         "canTutor": not locked and not independent,
-        "canRevealTarget": task is not None and task.kind == "expand" and not locked,
+        "canRevealTarget": task is not None and max_level(task) == 5 and not locked,
         "canSubmit": task is not None and task.status not in TERMINAL_TASK and task.mode != "pending-commit",
         "canStartCostlyAction": not independent,
     }

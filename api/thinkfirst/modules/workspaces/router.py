@@ -14,7 +14,7 @@ from thinkfirst.core.deps import current_user
 from thinkfirst.core.errors import ValidationFailed
 from thinkfirst.modules.identity.models import User
 from thinkfirst.modules.ingestion import service as ingestion
-from thinkfirst.modules.learner_model import service as learner
+from thinkfirst.modules.student_profile import service as learner
 from thinkfirst.modules.tutor import policy
 from thinkfirst.modules.workspaces import service as workspaces
 
@@ -31,8 +31,15 @@ def list_subjects(user: User = Depends(current_user), db: Session = Depends(get_
     out = []
     for s in workspaces.list_subjects(db, user.id):
         srcs = ingestion.sources_public(db, user.id, s.id)
+        from thinkfirst.modules.tutor import service as tutor
+
+        concepts = [c for c in ingestion.active_concepts(db, user.id, s.id) if not c.is_foundation] if s.status == "ready" else []
+        sums = learner.concept_summaries(db, user.id, s.id) if concepts else {}
         out.append({**workspaces.subject_public(s), "source_count": len([x for x in srcs if x["status"] != "removed"]),
-                    "needs_attention": any(x["status"] == "needs_attention" for x in srcs)})
+                    "needs_attention": any(x["status"] == "needs_attention" for x in srcs),
+                    "concept_count": len(concepts),
+                    "applied_count": sum(1 for c in concepts if "applied_independently" in sums.get(c.id, {}).get("states", [])),
+                    "resume": tutor.unfinished_for_subject(db, user.id, s.id)})
     return {"subjects": out}
 
 
@@ -70,6 +77,49 @@ def create_guided(body: GuidedIn, user: User = Depends(current_user), db: Sessio
     return {"subject": workspaces.subject_public(subject)}
 
 
+TOPIC_SUGGESTIONS = [
+    {"topic": "Distributive property and expanding brackets", "area": "Algebra", "icon": "∑"},
+    {"topic": "Derivatives and the chain rule", "area": "Calculus", "icon": "∂"},
+    {"topic": "Newton's laws of motion", "area": "Physics", "icon": "⚙"},
+    {"topic": "Ohm's law and simple circuits", "area": "Electronics", "icon": "⚡"},
+    {"topic": "Conditional probability and Bayes' rule", "area": "Probability", "icon": "◔"},
+    {"topic": "Python loops and functions", "area": "Programming", "icon": "{ }"},
+    {"topic": "Matrices and linear systems", "area": "Linear algebra", "icon": "▦"},
+    {"topic": "Supply and demand", "area": "Economics", "icon": "↗"},
+]
+
+
+@router.get("/topics/suggestions")
+def topic_suggestions():
+    from thinkfirst.modules.llm_gateway import service as llm
+
+    caps = llm.capabilities()
+    return {"suggestions": TOPIC_SUGGESTIONS, "ai_available": not caps["simulated"], "provider_label": caps["label"]}
+
+
+class TopicIn(BaseModel):
+    topic: str
+    level: str = "university"
+
+
+@router.post("/subjects/topic")
+def create_from_topic(body: TopicIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Learn any topic directly: AI-generated roadmap the student confirms (UC05, no documents needed)."""
+    subject = workspaces.create_subject(db, user.id, body.topic.strip()[:200] or "New topic", origin="guided_topic")
+    ingestion.start_topic_scope(db, user.id, subject.id, body.topic, body.level)
+    return {"subject": workspaces.subject_public(workspaces.get_subject(db, user.id, subject.id))}
+
+
+@router.post("/subjects/{subject_id}/start")
+def confirm_and_start(subject_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """One-click 'Start learning' for generated roadmaps: confirms the proposal unchanged."""
+    rev = ingestion.proposed_revision(db, user.id, subject_id)
+    if rev is None:
+        raise ValidationFailed("The roadmap is not ready yet.")
+    ingestion.confirm_scope(db, user.id, subject_id, rev.id, [])
+    return {"subject": workspaces.subject_public(workspaces.get_subject(db, user.id, subject_id))}
+
+
 @router.get("/subjects/{subject_id}")
 def get_subject(subject_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     return {"subject": workspaces.subject_public(workspaces.get_subject(db, user.id, subject_id))}
@@ -88,7 +138,9 @@ def setup_state(subject_id: str, user: User = Depends(current_user), db: Session
     srcs = ingestion.sources_public(db, user.id, subject_id)
     rev = ingestion.proposed_revision(db, user.id, subject_id)
     job_rows = db.scalars(select(jobs.Job).where(jobs.Job.owner_id == user.id, jobs.Job.type == "ingestion.extract")).all()
+    topic_job = db.scalar(select(jobs.Job).where(jobs.Job.idempotency_key == f"topic:{subject_id}", jobs.Job.owner_id == user.id))
     return {"subject": workspaces.subject_public(subject), "sources": srcs,
+            "topic_job": jobs.job_public(topic_job) if topic_job else None,
             "jobs": [jobs.job_public(j) for j in job_rows if j.payload.get("revision_id")],
             "proposal": None if rev is None else {
                 "id": rev.id, "revision_no": rev.revision_no, "basis": rev.basis, "label": rev.extraction_label,
@@ -154,7 +206,10 @@ def remove_source(source_id: str, user: User = Depends(current_user), db: Sessio
 def resources(subject_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     workspaces.get_subject(db, user.id, subject_id)
     lock = policy.active_lock(db, user.id, subject_id)
+    from thinkfirst.modules.resource_discovery import service as resources
+
     return {"sources": ingestion.sources_public(db, user.id, subject_id), "locked": lock is not None,
+            "open_resources": [] if lock else [resources.public(i) for i in resources.for_subject(db, user.id, subject_id)],
             "generated_aids": [], "generated_aids_note": "Generated study aids arrive in a later milestone."}
 
 
@@ -180,10 +235,20 @@ def roadmap(subject_id: str, user: User = Depends(current_user), db: Session = D
         u = units.setdefault(c.unit_no, {"unit_no": c.unit_no, "title": c.unit_title, "concepts": [], "foundations": []})
         entry = {**ingestion.concept_public(c), "evidence": _summary_public(sums.get(c.id))}
         (u["foundations"] if c.is_foundation else u["concepts"]).append(entry)
-    suggested = next((c for u in sorted(units) for c in units[u]["concepts"]
-                      if "applied_independently" not in c["evidence"]["states"]), None)
+    from thinkfirst.modules.adaptation import service as adaptation
+
+    sug = adaptation.suggest_concept(db, user.id, subject_id)
+    suggested = {"id": sug["concept_id"], "reason": sug["reason"], "kind": sug["kind"]} if sug else None
+    from thinkfirst.modules.tutor import service as tutor
+
+    all_concepts = [c for u in units.values() for c in u["concepts"]]
     return {"subject": workspaces.subject_public(subject), "units": [units[k] for k in sorted(units)],
-            "suggested_concept_id": suggested["id"] if suggested else None}
+            "suggested_concept_id": suggested["id"] if suggested else None,
+            "suggestion": suggested,
+            "resume": tutor.unfinished_for_subject(db, user.id, subject_id),
+            "counts": {"concepts": len(all_concepts),
+                       "applied": sum(1 for c in all_concepts if "applied_independently" in c["evidence"]["states"]),
+                       "started": sum(1 for c in all_concepts if c["evidence"]["states"])}}
 
 
 def _summary_public(s: dict | None) -> dict:

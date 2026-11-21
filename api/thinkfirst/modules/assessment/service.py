@@ -50,7 +50,9 @@ def get_rubric(db: Session, owner_id: str, subject_id: str, concept_key: str, ti
 def rubric_public(r: Rubric) -> dict:
     """What the student may see before answering: criteria + essential descriptions (no patterns)."""
     return {"id": r.id, "template": r.template, "approval": r.approval,
-            "approval_label": "Demo rubric — not domain-approved" if r.approval.startswith("demo") else r.approval,
+            "approval_label": ("Demo rubric — not domain-approved" if r.approval.startswith("demo") else
+                               "AI-generated rubric — not domain-approved" if r.approval.startswith("ai-generated")
+                               else r.approval),
             "criteria": [{"criterion": c["criterion"], "applicable": c.get("applicable", True),
                           "essentials": [{"id": e["id"], "description": e["description"]} for e in c.get("essentials", [])]}
                          for c in r.criteria],
@@ -158,3 +160,60 @@ def delete_task_attempts(db: Session, owner_id: str, task_id: str) -> int:
 
 def get_attempt(db: Session, owner_id: str, attempt_id: str) -> Attempt:
     return get_owned(db, Attempt, attempt_id, owner_id)
+
+
+@llm.register_demo("grade_short_answer")
+def _demo_short_answer(v: dict) -> dict:
+    return {"verdict": "uncertain", "feedback": "No AI service is configured to check free-text answers, so this stays unscored.",
+            "misconception": None, "targeted_question": None}
+
+
+_VERDICT_STATUS = {"correct": "demonstrated", "partially_correct": "partial", "incorrect": "absent", "uncertain": "unscored"}
+_OUTCOME = {"demonstrated": "demonstrated", "partial": "partial", "absent": "not_demonstrated", "unscored": "unscored"}
+
+
+def grade_generated(db: Session, attempt: Attempt, *, question: str, expected: str, kind: str, answer: str,
+                    transfer: bool) -> Assessment:
+    """Generated practice/transfer items: SymPy when both sides are expressions, otherwise the LLM grader.
+    Uncertain or invalid output => unscored (never zero). Feedback never reveals the reference answer."""
+    existing = assessment_for_attempt(db, attempt.id)
+    if existing:
+        return existing
+    verdict, feedback, misc, tq = None, "", None, None
+    method, label = "symbolic", SYMBOLIC_LABEL
+    if kind == "expression":
+        e, a = mathcheck.parse(expected), mathcheck.parse(answer)
+        if e is not None and a is not None:
+            ok = mathcheck.equivalent(a, e)
+            verdict = "correct" if ok else "incorrect"
+            feedback = "Your answer is equivalent to the expected result." if ok else "Not equivalent yet — check each step."
+    if verdict is None:
+        res = llm.run(db, "grade_short_answer", {"question": question, "reference_answer": expected, "student_answer": answer},
+                      owner_id=attempt.owner_id, purpose="short_answer_grading")
+        method, label = ("simulated" if res.simulated else "ai"), res.label
+        out = res.output if res.status == "ok" else None
+        verdict = (out or {}).get("verdict") if (out or {}).get("verdict") in _VERDICT_STATUS else "uncertain"
+        feedback = str((out or {}).get("feedback") or "There is not enough reliable information to score this yet.")[:600]
+        misc, tq = (out or {}).get("misconception"), (out or {}).get("targeted_question")
+    if expected and len(expected.strip()) > 2 and expected.strip().lower() in feedback.lower():
+        feedback = "Not quite yet — compare your answer with the key idea, then try the next step."
+    status = _VERDICT_STATUS[verdict]
+    quote = [{"sentence_id": "answer", "text": answer.strip()}] if status != "unscored" else []
+    crit = [{"criterion": "correctness", "status": status, "score": {"absent": 0, "partial": 1, "demonstrated": 2}.get(status),
+             "quotes": quote, "missing": [], "covered_essentials": [], "rationale": feedback}]
+    for c in ("essential_coverage", "why_relationships", "example_application", "limits"):
+        if transfer and c == "example_application":
+            crit.append({**crit[0], "criterion": c, "rationale": "Applying the idea to the new situation."})
+        else:
+            crit.append({"criterion": c, "status": "na", "score": None, "quotes": [], "missing": [], "covered_essentials": [],
+                         "rationale": "Not applicable."})
+    applicable = [c for c in crit if c["status"] != "na"]
+    total = None if any(c["status"] == "unscored" for c in applicable) else sum(c["score"] for c in applicable)
+    misconception = ({"code": "generated", "message": str(misc or "Not quite yet.")[:300],
+                      "targeted_question": str(tq)[:300] if tq else None} if verdict == "incorrect" and (misc or tq) else None)
+    a = Assessment(owner_id=attempt.owner_id, attempt_id=attempt.id, method=method, method_label=label, criteria=crit,
+                   outcome=_OUTCOME[status], sufficiency="sufficient" if status != "unscored" else "limited",
+                   reason="", feedback=feedback, misconception=misconception, total=total)
+    db.add(a)
+    db.flush()
+    return a

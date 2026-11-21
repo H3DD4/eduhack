@@ -18,7 +18,7 @@ export default function Resources() {
         {!data && !error && <Skeleton />}
         {error && <ErrorBox message="Resources could not load." onRetry={reload} />}
         {data?.locked && <p className="card">Course pages are hidden while an independent application is in progress in this subject.</p>}
-        {data && (
+        {data && data.sources.length > 0 && (
           <div className="card overflow-x-auto">
             <table className="w-full min-w-[520px] text-left">
               <caption className="sr-only">Your private sources</caption>
@@ -37,6 +37,19 @@ export default function Resources() {
               </tbody>
             </table>
           </div>
+        )}
+        {data?.open_resources?.length > 0 && (
+          <section className="space-y-3" aria-labelledby="open-h">
+            <h2 id="open-h" className="text-section">Open resources found for this subject</h2>
+            <ul className="grid gap-4 md:grid-cols-2">{data.open_resources.map((r: any) => (
+              <li key={r.id} className="game-card p-5">
+                <p className="text-meta font-semibold text-ink-muted">{r.provider} · {r.license} · unverified source</p>
+                <h3 className="mt-1 font-bold"><a className="underline" href={r.url} target="_blank" rel="noreferrer">{r.title} ↗</a></h3>
+                <p className="mt-2 text-meta">{r.summary}</p>
+                <p className="mt-2 text-meta text-ink-muted">{r.attribution} <a className="underline" href={r.license_url} target="_blank" rel="noreferrer">License</a></p>
+              </li>
+            ))}</ul>
+          </section>
         )}
         <p className="text-meta text-ink-muted">{data?.generated_aids_note}</p>
       </div>

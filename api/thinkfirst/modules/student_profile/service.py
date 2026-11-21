@@ -1,4 +1,4 @@
-"""learner_model service. Reacts to assessment/exposure/deletion events; idempotent per event key.
+"""student_profile service. Reacts to assessment/exposure/deletion events; idempotent per event key.
 
 Label rules (override §3.1/§3.2, blueprint evidence contract):
 - reading/recall/learn => Introduced (exposure only, never performance);
@@ -21,7 +21,7 @@ from thinkfirst.core import events
 from thinkfirst.core.db import utcnow
 from thinkfirst.core.deps import get_owned
 from thinkfirst.core.errors import ValidationFailed
-from thinkfirst.modules.learner_model.models import LABELS, EvidenceRecord, ReviewSchedule
+from thinkfirst.modules.student_profile.models import LABELS, EvidenceRecord, ReviewSchedule
 
 EXPOSURE_RECORDED = "exposure.recorded"
 DEFAULT_REVIEW_DAYS = 3
@@ -37,7 +37,8 @@ def label_for(stage: str, mode: str | None, outcome: str, criteria: list[dict], 
         return "explained"
     if stage == "transfer":
         required = {"correctness", "essential_coverage", "example_application"}
-        ok = all(c["status"] == "demonstrated" for c in criteria if c["criterion"] in required)
+        relevant = [c for c in criteria if c["criterion"] in required and c["status"] != "na"]
+        ok = bool(relevant) and all(c["status"] == "demonstrated" for c in relevant)
         if (mode == "independent-transfer" and outcome == "demonstrated" and ok
                 and not assistance.get("revealed") and not assistance.get("conversion")):
             return "applied_independently"

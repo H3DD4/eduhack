@@ -41,13 +41,33 @@ export function LearnStage({ view, subjectId, sessionId, draft, onDraft, onConti
         </figure>
       ) : ex?.tombstone ? (
         <p className="card">The cited source was removed. <Link className="underline" href={`/subjects/${subjectId}/resources`}>Replace it in Resources</Link>.</p>
+      ) : lesson?.generated ? (
+        <article className="game-card space-y-4 p-6">
+          <p className="flex flex-wrap items-center gap-2"><OriginLabel origin="ai-generated" /><span className="text-meta text-ink-muted">{lesson.generated.label}</span></p>
+          <p className="text-problem"><MathText text={lesson.generated.summary} /></p>
+          {lesson.generated.key_points?.length > 0 && (
+            <ul className="space-y-2">{lesson.generated.key_points.map((k: string, i: number) => (
+              <li key={i} className="flex gap-3"><span aria-hidden className="node !h-8 !w-8 shrink-0 !text-meta !shadow-none node-progress">{i + 1}</span><span><MathText text={k} /></span></li>
+            ))}</ul>
+          )}
+          {lesson.generated.sources?.length > 0 && (
+            <div className="rounded-detail border border-border bg-canvas p-3 text-meta">
+              <p className="font-semibold">Grounded in openly licensed sources</p>
+              <ul className="mt-1 space-y-1">{lesson.generated.sources.map((src: any) => (
+                <li key={src.id}><a className="underline" href={src.url} target="_blank" rel="noreferrer">{src.title}</a> — {src.attribution} <a className="underline" href={src.license_url} target="_blank" rel="noreferrer">License</a></li>
+              ))}</ul>
+            </div>
+          )}
+        </article>
+      ) : view.pack_status === "pending" ? (
+        <div className="hero p-6" aria-busy="true"><div className="relative z-10"><p className="text-section">Preparing your lesson…</p><p className="muted">Gathering open sources and writing a short lesson, practice and checks.</p></div></div>
       ) : (
-        <p className="card"><span className="pill text-ink-muted">✦ AI-generated</span> No course citation exists for this concept (guided topic). Objective: {view.concept.objective}</p>
+        <p className="card"><span className="pill text-ink-muted">✦ AI-generated</span> No course citation exists for this concept. Objective: {view.concept.objective}</p>
       )}
       {lesson?.example && (
         <div className="card">
           <OriginLabel origin={lesson.example.origin} />
-          <p className="mt-2 text-problem"><MathText text={lesson.example.text} /></p>
+          <p className="mt-2 whitespace-pre-line text-problem"><MathText text={lesson.example.text} /></p>
         </div>
       )}
       {lesson?.retrieval_prompt && (
@@ -97,6 +117,7 @@ export function PracticeStage({ view, subjectId, draft, onDraft, onHelp, onReloa
       <LiveRegion message={announce} />
       <div className="flex flex-wrap items-center gap-2"><OriginLabel origin={t.origin} detail={t.origin_detail} /><span className="text-meta text-ink-muted">{t.origin_detail}</span></div>
       <h2 id="st-h" tabIndex={-1} className="text-problem font-bold"><MathText text={t.prompt} /></h2>
+      {view.nudge && !t.last_assessment && <p className="rounded-detail bg-help-surface p-3 text-help"><strong>From your history:</strong> {view.nudge}</p>}
       {t.revealed && t.solution && (
         <div className="card"><p className="font-semibold">Worked solution (this attempt is assisted)</p><p className="mt-1"><MathText text={t.solution.steps} /></p></div>
       )}
@@ -104,9 +125,13 @@ export function PracticeStage({ view, subjectId, draft, onDraft, onHelp, onReloa
         <>
           <div>
             <label htmlFor="ans" className="label">Your answer</label>
-            <input id="ans" className="field text-problem" value={draft} onChange={(e) => onDraft(e.target.value)} autoComplete="off" inputMode="text"
-              aria-describedby="ans-hint" />
-            <p id="ans-hint" className="mt-1 text-meta text-ink-muted">Type an expression, for example 3x + 5. No minimum effort needed before asking for help.</p>
+            {t.kind === "short_answer" ? (
+              <textarea id="ans" className="field !min-h-[100px] text-problem" value={draft} onChange={(e) => onDraft(e.target.value)} aria-describedby="ans-hint" />
+            ) : (
+              <input id="ans" className="field text-problem" value={draft} onChange={(e) => onDraft(e.target.value)} autoComplete="off" inputMode="text"
+                aria-describedby="ans-hint" />
+            )}
+            <p id="ans-hint" className="mt-1 text-meta text-ink-muted">{t.kind === "short_answer" ? "Answer in your own words (any language)." : "Type an expression, for example 3x + 5."} No minimum effort needed before asking for help.</p>
           </div>
           {err && <ErrorBox message={err} />}
           <div className="flex flex-wrap gap-3">
@@ -145,6 +170,10 @@ export function TransferStage({ view, subjectId, draft, onDraft, onReload, onRef
     if (unavailable) return (
       <section className="space-y-4"><p>{unavailable}</p><p className="text-meta text-ink-muted">Independent application stays “not shown yet”; nothing is invented.</p>
         <button className="btn-primary" onClick={onReflect}>Reflect</button></section>
+    );
+    if (view.pending_job?.status === "failed") return (
+      <div className="card space-y-3" role="alert"><p>The new problem is not ready yet (its study pack is still being prepared).</p>
+        <button className="btn-primary" onClick={async () => { await api(`/jobs/${view.pending_job.id}/retry`, { method: "POST" }); onReload(); }}>Retry</button></div>
     );
     return <div className="card" aria-busy="true"><p>Preparing a genuinely new problem…</p><button className="btn-primary mt-3" disabled>Preparing task</button></div>;
   }
@@ -208,7 +237,7 @@ export function TransferStage({ view, subjectId, draft, onDraft, onReload, onRef
       {!finished && (
         <>
           <div>
-            <label htmlFor="tr-ans" className="label">Your answer (write both forms)</label>
+            <label htmlFor="tr-ans" className="label">{t.kind === "equivalent_forms" ? "Your answer (write both forms)" : "Your answer"}</label>
             <textarea id="tr-ans" className="field !min-h-[90px] text-problem" value={draft} onChange={(e) => onDraft(e.target.value)} />
           </div>
           {err && <ErrorBox message={err} />}

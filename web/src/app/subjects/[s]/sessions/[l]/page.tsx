@@ -140,10 +140,11 @@ function Workspace() {
 
   // Poll while a follow-up/transfer job is preparing (retry reconciles the same job).
   useEffect(() => {
-    if (!view?.pending_job || ["succeeded", "failed", "cancelled"].includes(view.pending_job.status)) return;
+    const packPending = view?.pack_status === "pending" && ["learn", "practice"].includes(view?.session?.stage);
+    if (!packPending && (!view?.pending_job || ["succeeded", "failed", "cancelled"].includes(view.pending_job.status))) return;
     const id = setInterval(load, 1500);
     return () => clearInterval(id);
-  }, [view?.pending_job, load]);
+  }, [view?.pending_job, view?.pack_status, view?.session?.stage, load]);
 
   const saveAndPause = async () => {
     setPausing(true);

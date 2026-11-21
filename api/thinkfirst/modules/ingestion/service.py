@@ -392,10 +392,9 @@ def concept_excerpt(db: Session, owner_id: str, concept: Concept) -> dict | None
 
 
 def retrieve(db: Session, owner_id: str, subject_id: str, query: str, k: int = 3) -> list[tuple[float, SourceChunk]]:
-    qv = extract.demo_embed(query)
-    chunks = db.scalars(select(SourceChunk).where(SourceChunk.owner_id == owner_id, SourceChunk.subject_id == subject_id)).all()
-    scored = sorted(((extract.cosine(qv, c.embedding or []), c) for c in chunks), key=lambda t: -t[0])
-    return scored[:k]
+    from thinkfirst.modules.rag import service as rag
+
+    return rag.search_course(db, owner_id, subject_id, query, k)
 
 
 def sources_public(db: Session, owner_id: str, subject_id: str) -> list[dict]:
@@ -445,3 +444,72 @@ def create_guided_scope(db: Session, owner_id: str, subject_id: str, discipline:
                        is_foundation=foundation, uncertain=True, citations=[]))
     workspaces.set_status(db, owner_id, subject_id, "awaiting_confirmation")
     return rev
+
+
+# ---------------- learn any topic directly (no documents required) ----------------
+
+TOPIC_LABEL_TMPL = "AI-generated roadmap for “{topic}” ({provider}). Not from your course — rename or exclude anything."
+
+
+@llm.register_demo("generate_topic_scope")
+def _demo_topic_scope(v: dict) -> dict:
+    """Demo adapter (no AI key): only the built-in algebra starter is available."""
+    topic = str(v.get("student_topic", "")).lower()
+    if any(w in topic for w in ("algebra", "algèbre", "distribut", "expression", "equation", "équation")):
+        cs = GUIDED_TOPICS["algebra"]["concepts"]
+        return {"title": GUIDED_TOPICS["algebra"]["title"], "units": [{"no": 1, "title": GUIDED_TOPICS["algebra"]["title"],
+                "concepts": [{"key": k, "title": t, "objective": o, "prerequisites": p, "is_foundation": f}
+                             for k, t, o, p, f in cs]}]}
+    return {"title": v.get("student_topic", ""), "units": []}
+
+
+def start_topic_scope(db: Session, owner_id: str, subject_id: str, topic: str, level: str) -> None:
+    topic = (topic or "").strip()[:200]
+    if len(topic) < 2:
+        raise ValidationFailed("Type what you want to learn.", field="topic")
+    workspaces.set_status(db, owner_id, subject_id, "processing")
+    jobs.enqueue(db, "ingestion.topic_scope", owner_id, {"subject_id": subject_id, "topic": topic, "level": level},
+                 idempotency_key=f"topic:{subject_id}")
+
+
+@jobs.job_handler("ingestion.topic_scope")
+def _topic_scope_job(db: Session, job: jobs.Job) -> dict:
+    p = job.payload
+    owner, subject_id = job.owner_id, p["subject_id"]
+    from thinkfirst.modules.rag import service as rag
+
+    g = rag.hybrid(db, owner, subject_id, p["topic"], fetch_query=p["topic"])  # library first, live fetch if missing
+    found = g["citations"]
+    grounding = g["text"][:6000]
+    res = llm.run(db, "generate_topic_scope", {"student_topic": p["topic"], "level": p.get("level", "university"),
+                                               "course_excerpt": grounding}, owner_id=owner, purpose="topic_scope")
+    units = (res.output or {}).get("units") or []
+    if res.status != "ok" or not any(u.get("concepts") for u in units):
+        workspaces.set_status(db, owner_id=owner, subject_id=subject_id, status="needs_attention")
+        return {"error": "TOPIC_GENERATION_FAILED" if not res.simulated else "AI_NOT_CONFIGURED"}
+    no = (db.scalar(select(func.max(ConceptGraphRevision.revision_no))
+                    .where(ConceptGraphRevision.subject_id == subject_id)) or 0) + 1
+    rev = ConceptGraphRevision(owner_id=owner, subject_id=subject_id, revision_no=no, status="proposed", basis="generated",
+                               extraction_label=TOPIC_LABEL_TMPL.format(topic=p["topic"], provider=res.label.split("(")[-1].split(")")[0])
+                               + (f" Grounded in {len(found)} openly licensed source(s) ({'shared library' if g['route'] == 'library' else 'fetched live'})." if found else ""))
+    db.add(rev)
+    db.flush()
+    pos, seen = 0, set()
+    for u in units[:4]:
+        for c in (u.get("concepts") or [])[:6]:
+            key = str(c.get("key") or f"{u.get('no', 1)}.{pos + 1}")[:32]
+            if key in seen:
+                continue
+            seen.add(key)
+            db.add(Concept(owner_id=owner, graph_revision_id=rev.id, subject_id=subject_id, key=key,
+                           title=str(c.get("title", key))[:300], objective=str(c.get("objective", ""))[:600],
+                           unit_no=int(u.get("no") or 1), unit_title=str(u.get("title", ""))[:300], position=pos,
+                           prerequisites=[str(x)[:32] for x in c.get("prerequisites", [])][:6],
+                           is_foundation=bool(c.get("is_foundation")), uncertain=True, citations=[]))
+            pos += 1
+    subject = workspaces.get_subject(db, owner, subject_id)
+    subject.status = "awaiting_confirmation"
+    title = str((res.output or {}).get("title") or "").strip()
+    if title and subject.name.lower() == p["topic"].lower():
+        subject.name = title[:200]
+    return {"graph_revision_id": rev.id, "concepts": pos}

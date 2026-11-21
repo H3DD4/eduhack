@@ -13,10 +13,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, String, Text
+from sqlalchemy import JSON, Boolean, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from thinkfirst.core.db import Base, OwnedMixin, TimestampMixin, new_id
+from thinkfirst.core.db import Base, Embedding, OwnedMixin, TimestampMixin, new_id
 
 SCHEMA = {"schema": "knowledge_library"}
 ORIGIN_LABELS = ("verified-source", "unverified-source", "ai-generated")
@@ -52,7 +52,36 @@ class LicensedContent(Base, TimestampMixin):
     permits_storage: Mapped[bool] = mapped_column(Boolean, default=False)
     permits_redistribution: Mapped[bool] = mapped_column(Boolean, default=False)
     storage_key: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    origin_label: Mapped[str] = mapped_column(String(24), default="verified-source")
+    origin_label: Mapped[str] = mapped_column(String(24), default="unverified-source")
+    language: Mapped[str] = mapped_column(String(8), default="en")
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)  # stored ONLY because the license permits it
+    provider: Mapped[str] = mapped_column(String(32), default="")
+
+
+class SharedChunk(Base, TimestampMixin):
+    """Vector index over the SHARED open library (licensed public content only — never student data).
+    Grows as students use the app: every live fetch is stored once and reused for all future users."""
+
+    __tablename__ = "shared_chunks"
+    __table_args__ = SCHEMA
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    licensed_content_id: Mapped[str] = mapped_column(String(36), index=True)
+    ord: Mapped[int] = mapped_column(Integer, default=0)
+    text: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list | None] = mapped_column(Embedding(256), nullable=True)
+
+
+class SubjectResourceLink(Base, OwnedMixin, TimestampMixin):
+    """Private link between a student's subject and shared/licensed resources found for it."""
+
+    __tablename__ = "subject_resource_links"
+    __table_args__ = SCHEMA
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    subject_id: Mapped[str] = mapped_column(String(36), index=True)
+    licensed_content_id: Mapped[str] = mapped_column(String(36), index=True)
+    query: Mapped[str] = mapped_column(String(300))
 
 
 class Contribution(Base, OwnedMixin, TimestampMixin):

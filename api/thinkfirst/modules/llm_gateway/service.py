@@ -31,6 +31,9 @@ DemoFn = Callable[[dict[str, Any]], dict[str, Any]]
 _demo_adapters: dict[str, DemoFn] = {}
 _cache: dict[str, tuple[float, dict]] = {}
 CACHE_TTL_S = 600
+# Circuit breaker: a provider that just timed out / rate-limited / errored is skipped for a while.
+_cooldown_until: dict[str, float] = {}
+COOLDOWN_S = 300
 
 # Rough public list-price estimates in USD per 1M tokens (labelled estimates, used for metadata only).
 _PRICES = {"anthropic": (4.0, 20.0), "gemini": (0.30, 2.50), "groq": (0.15, 0.60), "demo": (0.0, 0.0)}
@@ -73,7 +76,7 @@ def active_provider() -> str:
     s = get_settings()
     if s.llm_provider in ("demo", "anthropic", "gemini", "groq"):
         return s.llm_provider if _has_key(s.llm_provider) else "demo"
-    for p in ("anthropic", "gemini", "groq"):
+    for p in ("anthropic", "groq", "gemini"):  # Groq first: fastest and most reliable in testing (D-028)
         if _has_key(p):
             return p
     return "demo"
@@ -84,7 +87,9 @@ def provider_chain() -> list[str]:
     primary = active_provider()
     if primary == "demo" or not get_settings().llm_fallback:
         return [primary]
-    return [primary] + [p for p in ("gemini", "groq", "anthropic") if p != primary and _has_key(p)]
+    chain = [primary] + [p for p in ("groq", "gemini", "anthropic") if p != primary and _has_key(p)]
+    healthy = [p for p in chain if _cooldown_until.get(p, 0) <= time.time()]
+    return healthy or chain  # if every provider is cooling down, still try them in order
 
 
 def capabilities() -> dict[str, Any]:
@@ -130,7 +135,7 @@ def _call_gemini(template: PromptTemplate, user_text: str) -> tuple[dict, int, i
         "contents": [{"role": "user", "parts": [{"text": user_text}]}],
         "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
     }
-    r = httpx.post(url, json=body, headers={"x-goog-api-key": s.gemini_api_key or ""}, timeout=60)
+    r = httpx.post(url, json=body, headers={"x-goog-api-key": s.gemini_api_key or ""}, timeout=25)
     if r.status_code == 429:
         raise _ProviderError("RATE_LIMITED")
     if r.status_code >= 400:
@@ -185,6 +190,8 @@ def run(db: Session, prompt_id: str, variables: dict[str, Any], *, owner_id: str
         result = _run_one(db, prompt_id, variables, owner_id=owner_id, purpose=purpose, provider=p)
         if result.status == "ok":
             return result
+        if result.status == "error" and p != "demo":
+            _cooldown_until[p] = time.time() + COOLDOWN_S
     assert result is not None
     return result
 

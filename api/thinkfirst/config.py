@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     # demo (default, restrictive) | groq | gemini. Real STT sends raw audio to that processor (disclosed in UI).
     stt_provider: str = "demo"
     embedding_provider: str = "demo"
+    # Live resource agent: openly licensed sources only (Wikipedia, CC BY-SA). Off in tests.
+    resource_discovery: bool = True
 
     google_client_id: str | None = None
     google_client_secret: str | None = None
