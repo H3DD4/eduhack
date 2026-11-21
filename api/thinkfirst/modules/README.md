@@ -35,12 +35,14 @@ Rules for everyone:
 **Inputs:** an answer + the task. **Outputs:** an assessment, plus a `misconception.detected` event.
 **Tests:** `tests/test_policy_unit.py` (grading), `tests/test_modules.py` (baseline, misconception → memory).
 
-## 2. adaptation — "what next?"
+## 2. adaptation — "what next?" (the learner engine)
 | File | What it does |
 |---|---|
-| `service.py` | `next_action` (Today), `suggest_concept` (next level or side quest after a repeated mistake), `review_interval` (1/2/4 days with reason), `session_nudge` (reminds you of your own past slip) |
-**Reads:** `data/student_profile` (evidence) and `data/memory` (history). **Writes:** nothing — it only decides.
-**Tests:** `tests/test_modules.py` (side quest, nudge, review interval).
+| `engine/` | **Standalone learner engine, JSON in → JSON out**: BKT mastery, FSRS retention, misconception state machine, frontier + Thompson bandit, metrics, simulator. Full explanation: `docs/ENGINE.md` |
+| `service.py` | Translates app data ↔ engine JSON: concept specs + memory events → learner state; suggestions, review dates, help suggestion after a wrong answer, bandit rewards |
+| `models.py` | `adaptation.bandit_stats`: shared aggregate counts only (no student id) |
+| `router.py` | `GET /subjects/{s}/learner-state`, `POST /engine/fold|recommend|evaluate`, `GET /engine/schema` |
+**Reads:** `data/memory` (events). **Tests:** `tests/test_engine.py` (23), `tests/test_modules.py` (app integration).
 
 ## 3. tutor — "teach, help, check"
 | File | What it does |

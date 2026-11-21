@@ -33,6 +33,7 @@ MODULE_SCHEMAS = [
     "knowledge_library",
     "admin",
     "memory",
+    "adaptation",
 ]
 
 current_user_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("current_user_id", default=None)

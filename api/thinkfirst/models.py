@@ -5,6 +5,8 @@ from thinkfirst.data.memory import models as _memory  # noqa: F401
 from thinkfirst.data.memory import service as _memory_service  # noqa: F401  (event subscribers)
 from thinkfirst.data.student_profile import models as _lm  # noqa: F401
 from thinkfirst.data.student_profile import service as _lm_service  # noqa: F401  (event subscribers)
+from thinkfirst.modules.adaptation import models as _adaptation  # noqa: F401
+from thinkfirst.modules.adaptation import service as _adaptation_service  # noqa: F401  (bandit rewards)
 from thinkfirst.modules.diagnostic.grading import models as _assessment_models  # noqa: F401
 from thinkfirst.modules.diagnostic.grading import service as _assessment_service  # noqa: F401  (event subscriber)
 from thinkfirst.modules.rag.agent import service as _rd  # noqa: F401

@@ -30,12 +30,59 @@ def _on_assessment(db: Session, e: events.Event) -> None:
     kind = {"demonstrated": "answer", "partial": "error", "not_demonstrated": "error", "unscored": "unscored"}.get(outcome, "answer")
     _add(db, e.owner_id, f"mem:assess:{p['assessment_id']}", kind=kind, summary=p.get("summary", "")[:500],
          detail={"outcome": outcome, "mode": p.get("mode"), "help": p.get("assistance", {}).get("help_steps", []),
-                 "criteria": {c["criterion"]: c["status"] for c in p.get("criteria", []) if c["status"] != "na"}}, **base)
+                 "criteria": {c["criterion"]: c["status"] for c in p.get("criteria", []) if c["status"] != "na"}},
+         outcome=ENGINE_OUTCOME.get(outcome, "unscored"), assistance=p.get("assistance_level", "none"),
+         evidence=p.get("evidence", "sufficient"), is_fresh=bool(p.get("is_fresh", True)),
+         misconception_id=p.get("misconception_id"), misconception_conf=0.9 if p.get("misconception_id") else None,
+         **base)
     assist = p.get("assistance", {})
     if assist.get("revealed"):
         _add(db, e.owner_id, f"mem:reveal:{p['task_id']}", kind="reveal", summary="Viewed the worked solution", detail={}, **base)
     if assist.get("conversion"):
         _add(db, e.owner_id, f"mem:conv:{p['task_id']}", kind="conversion", summary="Switched to guided practice", detail={}, **base)
+
+
+@events.subscribe("help.given")
+def _on_help(db: Session, e: events.Event) -> None:
+    p = e.payload
+    remediation = p["step"] in ("worked_example", "reveal")
+    _add(db, e.owner_id, f"mem:help:{p['task_id']}:{p['level']}", kind="worked_example" if remediation else "hint",
+         subject_id=p["subject_id"], concept_id=p.get("concept_id"), task_id=p["task_id"], stage=p.get("stage"),
+         summary=f"Help step {p['level']}: {p['step']}", detail={"step": p["step"], "level": p["level"]})
+
+
+def log_recommendation(db: Session, owner_id: str, *, subject_id: str, concept_id: str, task_id: str | None,
+                       action: str, context_key: str, propensity: float, key: str) -> None:
+    _add(db, owner_id, f"mem:rec:{key}", kind="recommendation", subject_id=subject_id, concept_id=concept_id,
+         task_id=task_id, stage="practice", summary=f"Suggested help: {action}", detail={},
+         recommended_action=action, context_key=context_key, propensity=propensity)
+
+
+STAGE_KIND = {"review": "review_check", "explanation": "explanation", "followup": "explanation"}
+MEMORY_KIND = {"answer": None, "error": None, "unscored": None, "worked_example": "worked_example", "hint": "hint",
+               "recommendation": "recommendation"}
+
+
+def engine_events(db: Session, owner_id: str, subject_id: str) -> list[dict]:
+    """This student's memory rows for a subject, as learner-engine LearningEvent JSON."""
+    out = []
+    for r in sorted(history(db, owner_id, subject_id, limit=5000), key=lambda r: r.created_at):
+        if r.kind not in MEMORY_KIND or not r.concept_id:
+            continue
+        kind = MEMORY_KIND[r.kind] or STAGE_KIND.get(r.stage or "", "attempt")
+        ev = {"event_id": r.id, "student_id": owner_id, "concept_id": r.concept_id, "ts": r.created_at.isoformat(),
+              "kind": kind, "item_id": r.task_id, "is_fresh": bool(r.is_fresh) if r.is_fresh is not None else True,
+              "assistance": r.assistance or "none", "evidence": r.evidence or "sufficient"}
+        if kind in ("attempt", "review_check", "explanation"):
+            ev.update(outcome=r.outcome or "unscored", misconception_id=r.misconception_id,
+                      misconception_conf=r.misconception_conf)
+        if kind == "recommendation":
+            ev.update(recommended_action=r.recommended_action, context_key=r.context_key, propensity=r.propensity)
+        out.append(ev)
+    return out
+
+
+ENGINE_OUTCOME = {"demonstrated": "correct", "partial": "partial", "not_demonstrated": "incorrect", "unscored": "unscored"}
 
 
 @events.subscribe("misconception.detected")

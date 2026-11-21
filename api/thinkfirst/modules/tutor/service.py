@@ -412,6 +412,10 @@ def help_step(db: Session, owner_id: str, task_id: str, kind: str, confirm_revea
                    idempotency_key=f"help:{t.id}:{idempotency_key}")
     db.add(ev)
     t.help_level = max(t.help_level, level)
+    s_help = db.get(StudySession, t.session_id)
+    events.publish(db, events.Event("help.given", owner_id, {
+        "subject_id": t.subject_id, "concept_id": s_help.concept_id if s_help else None, "task_id": t.id,
+        "help_event_id": ev.id if ev.id else idempotency_key, "step": step, "level": level, "stage": t.stage}))
     fresh = None
     if step == "reveal":
         t.revealed = True
@@ -499,12 +503,35 @@ def _assistance(db: Session, t: Task) -> dict:
             "note": "Completed without in-app help" if t.mode == "independent-transfer" else None}
 
 
+ENGINE_ASSISTANCE = {0: "none", 1: "hint_l1", 2: "hint_l2", 3: "hint_l3", 4: "worked_example", 5: "solution_revealed"}
+
+
+def _engine_fields(db: Session, t: Task, a) -> dict:
+    """Translate a graded attempt into learner-engine terms (assistance level, evidence quality, freshness)."""
+    n_attempts = len(assessment.attempts_for_task(db, t.owner_id, t.id))
+    if t.revealed:
+        assist = "solution_revealed"
+    elif t.mode == "guided-transfer":
+        assist = "guided"
+    elif t.help_level:
+        assist = ENGINE_ASSISTANCE.get(t.help_level, "hint_l3")
+    elif t.corrective_feedback_shown and n_attempts > 1:
+        assist = "hint_l1"  # a retry after corrective feedback is supported practice
+    else:
+        assist = "none"
+    evidence = "symbolic" if a.method == "symbolic" else {"sufficient": "sufficient", "limited": "limited"}.get(
+        a.sufficiency, "needs_verification")
+    code = (a.misconception or {}).get("code")
+    return {"assistance_level": assist, "evidence": evidence, "is_fresh": n_attempts == 1,
+            "misconception_id": ("other" if code == "generated" else code) if code else None}
+
+
 def _publish(db: Session, s: StudySession, t: Task, attempt, a, stage: str) -> None:
     events.publish(db, events.Event(events.ASSESSMENT_ACCEPTED, s.owner_id, {
         "subject_id": s.subject_id, "concept_id": s.concept_id, "concept_key": s.concept_key, "session_id": s.id,
         "task_id": t.id, "attempt_id": attempt.id, "assessment_id": a.id, "stage": stage,
         "mode": attempt.mode_at_submit, "outcome": a.outcome, "criteria": a.criteria, "assistance": _assistance(db, t),
-        "origin": t.origin, "method_label": a.method_label, "summary": a.feedback}))
+        "origin": t.origin, "method_label": a.method_label, "summary": a.feedback, **_engine_fields(db, t, a)}))
 
 
 def submit_answer(db: Session, owner_id: str, task_id: str, answer: str, expected_revision: int,
@@ -555,7 +582,16 @@ def submit_answer(db: Session, owner_id: str, task_id: str, answer: str, expecte
 
     diagnostic.diagnose_answer(db, owner_id, subject_id=s.subject_id, concept_id=s.concept_id, task_id=t.id,
                                attempt_id=attempt.id, stage=t.stage, assessment=assessment.assessment_public(a) or {})
-    return {"task": task_public(db, t), "assessment": assessment.assessment_public(a), "replayed": False}
+    suggested = None
+    if t.stage == "practice" and a.outcome in ("not_demonstrated", "partial"):
+        from thinkfirst.modules.adaptation import service as adaptation
+
+        code = (a.misconception or {}).get("code")
+        suggested = adaptation.recommend_action(db, owner_id, subject_id=s.subject_id, concept_id=s.concept_id,
+                                                task_id=t.id, error_class=("other" if code == "generated" else code),
+                                                key=attempt.id)
+    return {"task": task_public(db, t), "assessment": assessment.assessment_public(a), "replayed": False,
+            "suggested_help": suggested}
 
 
 def keep_unscored(db: Session, owner_id: str, task_id: str) -> Task:
@@ -628,7 +664,7 @@ def save_reflection(db: Session, owner_id: str, session_id: str, text: str, skip
 def book_review(db: Session, owner_id: str, session_id: str, due_on: date | None) -> dict:
     s = get_session(db, owner_id, session_id)
     if due_on is None:
-        due_on = _adaptive_review(learner.evidence_for_session(db, owner_id, s.id))[0]
+        due_on = _review_suggestion(db, s)[0]
     rv = learner.book_review(db, owner_id, subject_id=s.subject_id, concept_id=s.concept_id, session_id=s.id, due_on=due_on)
     return learner.review_public(rv) or {}
 
@@ -650,6 +686,14 @@ def _adaptive_review(evs) -> tuple:
     return adaptation.review_interval({e.label for e in evs if e.status != "deleted" and e.outcome in ("demonstrated", "exposure")})
 
 
+def _review_suggestion(db: Session, s: StudySession) -> tuple:
+    """Engine retention model first (needs unaided evidence); otherwise the simple 1/2/4-day rule."""
+    from thinkfirst.modules.adaptation import service as adaptation
+
+    return (adaptation.engine_review_date(db, s.owner_id, s.subject_id, s.concept_id)
+            or _adaptive_review(learner.evidence_for_session(db, s.owner_id, s.id)))
+
+
 def summary(db: Session, owner_id: str, session_id: str) -> dict:
     s = get_session(db, owner_id, session_id)
     evs = learner.evidence_for_session(db, owner_id, s.id)
@@ -669,8 +713,8 @@ def summary(db: Session, owner_id: str, session_id: str) -> dict:
         "retention": "Retention not checked yet — only a later review without help can show it.",
         "reflection": {"text": refl.text, "skipped": refl.skipped} if refl else None,
         "review": learner.review_public(review),
-        "default_review_on": _adaptive_review(evs)[0].isoformat(),
-        "review_reason": _adaptive_review(evs)[1],
+        "default_review_on": _review_suggestion(db, s)[0].isoformat(),
+        "review_reason": _review_suggestion(db, s)[1],
         "parent_session_id": s.parent_session_id,
     }
 
