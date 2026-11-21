@@ -66,12 +66,14 @@ The library grows with use; student data never enters the shared tables.
 
 ```
 api/thinkfirst/
+  domain/     PURE algorithms, no framework/DB imports (enforced): mastery (Elo, BKT), knowledge (skill graph, Q-matrix, item bank), consent tiers, tracking (xAPI events, signals, indicators), diagnostic (adaptive engine, profile)
   modules/    ONLY the 4 process modules: diagnostic (+grading), adaptation, tutor (+llm, +explain_back), rag (+ingestion, +library, +agent, vector_store)
   data/       stores: student_profile (Profil élève), memory (Historique & mémoire)
   platform/   support: identity, billing, workspaces
   core/       db, events, jobs, storage, errors, logging
 ```
 Each folder has a README with files, endpoints and tests. Postgres schema names were kept (e.g. `assessment`, `ingestion`, `learner_model`), so no data migration was needed.
+Brain ownership (Core, Student, Subject, Evidence, Session, Plan), event contracts and the migration plan: [BRAINS.md](BRAINS.md).
 
 ## Module responsibilities (original names → now inside the folders above)
 

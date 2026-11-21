@@ -7,6 +7,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from thinkfirst.core import events
 from thinkfirst.core.db import utcnow
 from thinkfirst.core.deps import get_owned
 from thinkfirst.core.errors import ValidationFailed
@@ -21,6 +22,10 @@ def create_subject(db: Session, owner_id: str, name: str, origin: str = "upload"
     subject = Subject(owner_id=owner_id, name=name[:200], origin=origin, goal=goal, exam_date=exam_date)
     db.add(subject)
     db.flush()
+    events.publish(db, events.Event(events.WORKSPACE_CREATED, owner_id, {
+        "subject_id": subject.id, "name": subject.name, "origin": origin, "goal": goal,
+        "exam_date": exam_date.isoformat() if exam_date else None,
+    }))
     return subject
 
 

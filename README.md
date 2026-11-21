@@ -7,6 +7,7 @@ This repository implements milestones **M0–M2** plus the eight-state demo (see
 
 ```
 api/      FastAPI backend (Python 3.12)
+            thinkfirst/domain/    pure algorithms: mastery (Elo, BKT), knowledge graph, consent, tracking, adaptive diagnostic
             thinkfirst/modules/   the 4 process modules: diagnostic, adaptation, tutor, rag
             thinkfirst/data/      student_profile, memory
             thinkfirst/platform/  identity, billing, workspaces

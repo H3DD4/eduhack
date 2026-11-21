@@ -12,11 +12,15 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from thinkfirst.core import events
 from thinkfirst.data.memory import service as memory
 from thinkfirst.data.student_profile import service as profile
+from thinkfirst.data.student_profile.models import InitialProfileRow
 from thinkfirst.modules.rag.ingestion import service as ingestion
+from thinkfirst.platform.identity import service as identity
 from thinkfirst.platform.workspaces import service as workspaces
 
 MISCONCEPTION_HINTS = {
@@ -35,6 +39,13 @@ def suggest_concept(db: Session, owner_id: str, subject_id: str) -> dict | None:
         if f and "applied_independently" not in sums.get(c.id, {}).get("states", []):
             return {"concept_id": f.id, "title": f.title, "kind": "side_quest",
                     "reason": f"The same slip appeared {rec['count']} times on “{c.title}”. An optional refresher on “{f.title}” may help."}
+    init_prof = profile.initial_profile_for_subject(db, owner_id, subject_id)
+    if init_prof and init_prof.get("frontier"):
+        for fkey in init_prof["frontier"]:
+            fc = by_key.get(fkey)
+            if fc and "applied_independently" not in sums.get(fc.id, {}).get("states", []):
+                return {"concept_id": fc.id, "title": fc.title, "kind": "frontier",
+                        "reason": f"On your knowledge frontier from the diagnostic ({init_prof['n_items']} answers): prerequisites are ready."}
     nxt = next((c for c in concepts if not c.is_foundation
                 and "applied_independently" not in sums.get(c.id, {}).get("states", [])), None)
     if nxt:
@@ -75,3 +86,48 @@ def session_nudge(db: Session, owner_id: str, subject_id: str, concept_id: str) 
         if e.kind == "misconception":
             return MISCONCEPTION_HINTS.get(e.detail.get("code"), f"From your history: {e.summary}")
     return None
+
+
+@events.subscribe(events.PROFILE_READY)
+def _on_profile_ready(db: Session, e: events.Event) -> None:
+    """Plan Brain: consume `profile.ready` + onboarding goal/rhythm and publish `plan.updated`."""
+    p = e.payload
+    subject_id = p["subject_id"]
+    concepts = ingestion.active_concepts(db, e.owner_id, subject_id)
+    by_key = {c.key: c for c in concepts}
+    frontier = p.get("frontier") or []
+    consent_row = identity.get_or_create_student_consent(db, e.owner_id)
+    onboard = consent_row.onboarding_data or {}
+    rhythm = onboard.get("rhythm") or {}
+    slot = rhythm.get("first_session_slot") or (rhythm.get("study_times") or ["Tomorrow at 18:00"])[0]
+
+    steps = []
+    for key in frontier[:3]:
+        c = by_key.get(key)
+        if c:
+            steps.append({"concept_id": c.id, "skill_key": c.key, "title": c.title,
+                          "reason": "Ready on your knowledge frontier (prerequisites met)."})
+    if not steps and concepts:
+        c = next((x for x in concepts if not x.is_foundation), concepts[0])
+        steps.append({"concept_id": c.id, "skill_key": c.key, "title": c.title,
+                      "reason": "First core concept on your roadmap."})
+
+    plan = {
+        "subject_id": subject_id,
+        "goal": onboard.get("goal", "unsure"),
+        "exam_date": onboard.get("exam_date"),
+        "first_session_slot": slot,
+        "hours_per_week": rhythm.get("hours_per_week", 5),
+        "recommended_steps": steps,
+    }
+    init_row = db.get(InitialProfileRow, p.get("profile_id")) if p.get("profile_id") else None
+    if init_row is None:
+        init_row = db.scalar(select(InitialProfileRow).where(
+            InitialProfileRow.owner_id == e.owner_id,
+            InitialProfileRow.subject_id == subject_id,
+        ).order_by(InitialProfileRow.created_at.desc()))
+    if init_row is not None:
+        init_row.first_plan = plan
+        db.flush()
+
+    events.publish(db, events.Event(events.PLAN_UPDATED, e.owner_id, plan))

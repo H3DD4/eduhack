@@ -21,9 +21,15 @@ from thinkfirst.core import events
 from thinkfirst.core.db import utcnow
 from thinkfirst.core.deps import get_owned
 from thinkfirst.core.errors import ValidationFailed
-from thinkfirst.data.student_profile.models import LABELS, EvidenceRecord, ReviewSchedule
+from thinkfirst.data.student_profile.models import (
+    LABELS,
+    EvidenceRecord,
+    InitialProfileRow,
+    ReviewSchedule,
+    SkillMasteryRow,
+)
 
-EXPOSURE_RECORDED = "exposure.recorded"
+EXPOSURE_RECORDED = events.EXPOSURE_RECORDED
 DEFAULT_REVIEW_DAYS = 3
 STAGE_ORDER = ["introduced", "practised_with_support", "explained", "applied_independently", "recalled_later"]
 
@@ -186,3 +192,114 @@ def review_public(rv: ReviewSchedule | None) -> dict | None:
         return None
     return {"id": rv.id, "subject_id": rv.subject_id, "concept_id": rv.concept_id, "session_id": rv.session_id,
             "due_on": rv.due_on.isoformat(), "status": rv.status, "basis": rv.basis}
+
+
+# ---- Evidence Brain: Initial Profile & BKT/Elo Skill Mastery persistence ----
+
+@events.subscribe(events.DIAGNOSTIC_COMPLETED)
+def _on_diagnostic_completed(db: Session, e: events.Event) -> None:
+    p = e.payload
+    subject_id = p["subject_id"]
+    diag_id = p["diagnostic_session_id"]
+    prof = p.get("profile") or {}
+    theta = float(prof.get("theta") or 1000.0)
+    expertise = prof.get("expertise") or {}
+    default_stage = next(iter(expertise.values()), "novice")
+
+    from thinkfirst.modules.rag.ingestion import service as ingestion
+
+    concepts_by_key = {c.key: c for c in ingestion.active_concepts(db, e.owner_id, subject_id)}
+    mastery_map = prof.get("mastery") or {}
+    for sk_key, m in mastery_map.items():
+        concept = concepts_by_key.get(sk_key)
+        chapter = (concept.unit_title or f"Unit {concept.unit_no}") if concept else "all"
+        stage = expertise.get(chapter, default_stage)
+        row = db.scalar(select(SkillMasteryRow).where(
+            SkillMasteryRow.owner_id == e.owner_id,
+            SkillMasteryRow.subject_id == subject_id,
+            SkillMasteryRow.skill_key == sk_key,
+        ))
+        if row is None:
+            row = SkillMasteryRow(
+                owner_id=e.owner_id, subject_id=subject_id,
+                concept_id=concept.id if concept else None, skill_key=sk_key,
+            )
+            db.add(row)
+        row.p_l = float(m.get("p_l", 0.3))
+        row.evidence_count = int(m.get("n", 0))
+        row.inferred = bool(m.get("inferred", False))
+        row.status = str(m.get("status", "uncertain"))
+        row.theta = theta
+        row.expertise_stage = stage
+        row.updated_at = utcnow()
+        if row.evidence_count > 0 and row.status == "mastered":
+            record(
+                db, owner_id=e.owner_id, idempotency_key=f"evidence:diag:{diag_id}:{sk_key}",
+                subject_id=subject_id, concept_id=concept.id if concept else None, concept_key=sk_key,
+                stage="diagnostic", label="introduced", outcome="demonstrated",
+                summary=f"Adaptive diagnostic starting estimate (based on {row.evidence_count} direct check(s)).",
+                assistance={},
+            )
+
+    init_row = db.scalar(select(InitialProfileRow).where(InitialProfileRow.diagnostic_session_id == diag_id))
+    if init_row is None:
+        init_row = InitialProfileRow(owner_id=e.owner_id, subject_id=subject_id, diagnostic_session_id=diag_id)
+        db.add(init_row)
+    init_row.theta = theta
+    init_row.frontier = list(prof.get("frontier") or [])
+    init_row.expertise = dict(expertise)
+    init_row.misconceptions = list(prof.get("misconceptions") or [])
+    init_row.calibration_gap = prof.get("calibration_gap")
+    init_row.behavior_priors = dict(prof.get("behavior_priors") or {})
+    init_row.data_quality = dict(prof.get("data_quality") or {})
+    init_row.student_view = dict(prof.get("student_view") or {})
+    init_row.stop_reason = str(prof.get("stop_reason") or "all_classified")
+    init_row.n_items = int(prof.get("n_items") or 0)
+    init_row.low_confidence = bool(prof.get("low_confidence", False))
+    init_row.needs_retest = bool(prof.get("needs_retest", False))
+    db.flush()
+
+    events.publish(db, events.Event(events.MASTERY_UPDATED, e.owner_id, {
+        "subject_id": subject_id, "theta": theta, "skills": list(mastery_map.keys()),
+    }))
+    events.publish(db, events.Event(events.PROFILE_READY, e.owner_id, {
+        "subject_id": subject_id, "profile_id": init_row.id,
+        "diagnostic_session_id": diag_id, "frontier": init_row.frontier,
+        "misconceptions": init_row.misconceptions, "theta": theta,
+        "low_confidence": init_row.low_confidence,
+    }))
+
+
+def skill_mastery_for_subject(db: Session, owner_id: str, subject_id: str) -> list[dict]:
+    rows = db.scalars(select(SkillMasteryRow).where(
+        SkillMasteryRow.owner_id == owner_id,
+        SkillMasteryRow.subject_id == subject_id,
+    ).order_by(SkillMasteryRow.skill_key)).all()
+    return [
+        {
+            "skill_key": r.skill_key, "concept_id": r.concept_id, "p_l": r.p_l,
+            "evidence_count": r.evidence_count, "inferred": r.inferred, "status": r.status,
+            "theta": r.theta, "expertise_stage": r.expertise_stage,
+            "updated_at": r.updated_at.isoformat(),
+        }
+        for r in rows
+    ]
+
+
+def initial_profile_for_subject(db: Session, owner_id: str, subject_id: str) -> dict | None:
+    row = db.scalar(select(InitialProfileRow).where(
+        InitialProfileRow.owner_id == owner_id,
+        InitialProfileRow.subject_id == subject_id,
+    ).order_by(InitialProfileRow.created_at.desc()))
+    if row is None:
+        return None
+    return {
+        "id": row.id, "subject_id": row.subject_id, "diagnostic_session_id": row.diagnostic_session_id,
+        "theta": row.theta, "frontier": row.frontier, "expertise": row.expertise,
+        "misconceptions": row.misconceptions, "calibration_gap": row.calibration_gap,
+        "behavior_priors": row.behavior_priors, "data_quality": row.data_quality,
+        "student_view": row.student_view, "first_plan": row.first_plan,
+        "stop_reason": row.stop_reason, "n_items": row.n_items,
+        "low_confidence": row.low_confidence, "needs_retest": row.needs_retest,
+        "created_at": row.created_at.isoformat(),
+    }

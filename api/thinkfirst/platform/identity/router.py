@@ -137,17 +137,67 @@ class Onboarding(BaseModel):
     goal: str = "unsure"
     timezone: str = "UTC"
     input_preference: str = "text"
+    birth_year: int | None = None
+    guardian_email: str | None = None
+    guardian_consented: bool | None = None
+    deal_accepted: bool | None = None
+    grant_tiers: list[str] | None = None
+    level: str | None = None
+    field: str | None = None
+    exam_date: str | None = None
+    prior_confidence: int | None = None
+    study_times: list[str] | None = None
+    hours_per_week: float | None = None
+    first_session_slot: str | None = None
+    interests: list[str] | None = None
 
 
 @router.patch("/me/onboarding")
-def onboarding(body: Onboarding, user: User = Depends(current_user)):
-    if body.goal not in GOALS:
+def onboarding(body: Onboarding, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if body.goal not in GOALS and body.goal not in ("mastery", "certification"):
         raise ValidationFailed("Choose a goal or Unsure.", field="goal")
-    user.goal = body.goal
-    user.timezone = body.timezone[:64] or "UTC"
-    service.update_preferences(user, {"input_preference": body.input_preference})
-    user.setup_complete = True
-    return {"user": user_public(user)}
+    consent_info = service.complete_onboarding(
+        db, user, goal=body.goal, timezone=body.timezone, input_preference=body.input_preference,
+        birth_year=body.birth_year, guardian_email=body.guardian_email,
+        guardian_consented=body.guardian_consented, deal_accepted=body.deal_accepted,
+        grant_tiers=body.grant_tiers, level=body.level, field=body.field, exam_date=body.exam_date,
+        prior_confidence=body.prior_confidence, study_times=body.study_times,
+        hours_per_week=body.hours_per_week, first_session_slot=body.first_session_slot,
+        interests=body.interests,
+    )
+    return {"user": user_public(user), "onboarding": consent_info}
+
+
+class AgeGateIn(BaseModel):
+    birth_year: int
+    guardian_email: str | None = None
+
+
+@router.post("/me/age-gate")
+def age_gate(body: AgeGateIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return {"consent": service.apply_age_gate(db, user.id, body.birth_year, guardian_email=body.guardian_email)}
+
+
+class TrackingConsentIn(BaseModel):
+    grant: list[str] = []
+    revoke: list[str] = []
+    guardian_consented: bool | None = None
+    guardian_email: str | None = None
+    deal_accepted: bool | None = None
+
+
+@router.get("/me/consent")
+def get_tracking_consent(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    row = service.get_or_create_student_consent(db, user.id)
+    return {"consent": service.student_consent_public(row, service.consent_state(db, user.id))}
+
+
+@router.patch("/me/consent")
+def patch_tracking_consent(body: TrackingConsentIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return {"consent": service.update_tracking_consent(
+        db, user.id, grant=body.grant, revoke=body.revoke, guardian_consented=body.guardian_consented,
+        guardian_email=body.guardian_email, deal_accepted=body.deal_accepted,
+    )}
 
 
 class PrefChanges(BaseModel):
