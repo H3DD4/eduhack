@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, ForeignKey, String
+from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from thinkfirst.core.db import Base, TimestampMixin, new_id
+from thinkfirst.core.db import Base, OwnedMixin, TimestampMixin, new_id, utcnow
 
 SCHEMA = {"schema": "identity"}
 
@@ -78,3 +78,21 @@ class AccessAuditLog(Base, TimestampMixin):
     target_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     consent_grant_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     purpose: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+
+class StudentConsent(Base, OwnedMixin, TimestampMixin):
+    """4-tier behavioral tracking consent, age gate, minors gating and 10-step onboarding data."""
+
+    __tablename__ = "student_consents"
+    __table_args__ = SCHEMA
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    birth_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_minor: Mapped[bool] = mapped_column(Boolean, default=False)
+    guardian_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    guardian_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    guardian_consented: Mapped[bool] = mapped_column(Boolean, default=False)
+    deal_accepted: Mapped[bool] = mapped_column(Boolean, default=False)
+    granted_tiers: Mapped[list] = mapped_column(JSON, default=lambda: ["essential"])
+    onboarding_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)

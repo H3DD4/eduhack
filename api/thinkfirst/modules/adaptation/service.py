@@ -17,9 +17,12 @@ from sqlalchemy.orm import Session
 
 from thinkfirst.core import events
 from thinkfirst.data.memory import service as memory
+from thinkfirst.data.student_profile import service as profile
+from thinkfirst.data.student_profile.models import InitialProfileRow
 from thinkfirst.modules.adaptation import engine
 from thinkfirst.modules.adaptation.models import BanditStat, HintStat, ItemStat
 from thinkfirst.modules.rag.ingestion import service as ingestion
+from thinkfirst.platform.identity import service as identity
 from thinkfirst.platform.workspaces import service as workspaces
 
 MISCONCEPTION_HINTS = {
@@ -29,19 +32,36 @@ MISCONCEPTION_HINTS = {
 
 
 def suggest_concept(db: Session, owner_id: str, subject_id: str) -> dict | None:
-    """First choice of the learner engine (remediate > review > diagnostic side quest > frontier > continue)."""
+    """Engine first for what is urgent (remediate > review > diagnostic side quest). When the engine would only say
+    "next new concept" (frontier / continue), the diagnostic's knowledge frontier decides — it holds more evidence
+    at cold start. Fallback: first non-foundation concept the engine does not consider mastered."""
     concepts = {c.id: c for c in ingestion.active_concepts(db, owner_id, subject_id)}
     if not concepts:
         return None
+    by_key = {c.key: c for c in concepts.values()}
     rec = recommend(db, owner_id, subject_id)
-    for choice in rec["next_concepts"]:
-        c = concepts.get(choice["concept_id"])
-        if c is None:
-            continue
-        kind = "side_quest" if choice["kind"] == "diagnostic_check" else choice["kind"]
-        return {"concept_id": c.id, "title": c.title, "kind": kind, "reason": f"{c.title}: {choice['reason']}",
-                "alternatives": [{"concept_id": x["concept_id"], "kind": x["kind"], "title": concepts[x["concept_id"]].title,
-                                  "reason": x["reason"]} for x in rec["next_concepts"][1:] if x["concept_id"] in concepts]}
+    alternatives = lambda skip: [{"concept_id": x["concept_id"], "kind": x["kind"],  # noqa: E731
+                                  "title": concepts[x["concept_id"]].title, "reason": x["reason"]}
+                                 for x in rec["next_concepts"] if x["concept_id"] in concepts and x["concept_id"] != skip]
+    first = next((x for x in rec["next_concepts"] if x["concept_id"] in concepts), None)
+    if first and first["kind"] in ("remediate", "review", "diagnostic_check"):
+        c = concepts[first["concept_id"]]
+        kind = "side_quest" if first["kind"] == "diagnostic_check" else first["kind"]
+        return {"concept_id": c.id, "title": c.title, "kind": kind, "reason": f"{c.title}: {first['reason']}",
+                "alternatives": alternatives(c.id)}
+    mastered_p = engine.schemas.EngineConfig().mastered
+    state = learner_state(db, owner_id, subject_id)["concepts"]
+    init_prof = profile.initial_profile_for_subject(db, owner_id, subject_id)
+    for fkey in (init_prof or {}).get("frontier") or []:
+        fc = by_key.get(fkey)
+        if fc and (state.get(fc.id) or {}).get("p_mastery", 0.0) < mastered_p:
+            return {"concept_id": fc.id, "title": fc.title, "kind": "frontier",
+                    "reason": f"On your knowledge frontier from the diagnostic ({init_prof['n_items']} answers): prerequisites are ready.",
+                    "alternatives": alternatives(fc.id)}
+    if first:
+        c = concepts[first["concept_id"]]
+        return {"concept_id": c.id, "title": c.title, "kind": first["kind"], "reason": f"{c.title}: {first['reason']}",
+                "alternatives": alternatives(c.id)}
     return None
 
 
@@ -261,3 +281,48 @@ def _update_quality_stats(db: Session, e: events.Event) -> None:
             d["counted"] = True
             h.detail = d
     db.flush()
+
+
+@events.subscribe(events.PROFILE_READY)
+def _on_profile_ready(db: Session, e: events.Event) -> None:
+    """Plan Brain: consume `profile.ready` + onboarding goal/rhythm and publish `plan.updated`."""
+    p = e.payload
+    subject_id = p["subject_id"]
+    concepts = ingestion.active_concepts(db, e.owner_id, subject_id)
+    by_key = {c.key: c for c in concepts}
+    frontier = p.get("frontier") or []
+    consent_row = identity.get_or_create_student_consent(db, e.owner_id)
+    onboard = consent_row.onboarding_data or {}
+    rhythm = onboard.get("rhythm") or {}
+    slot = rhythm.get("first_session_slot") or (rhythm.get("study_times") or ["Tomorrow at 18:00"])[0]
+
+    steps = []
+    for key in frontier[:3]:
+        c = by_key.get(key)
+        if c:
+            steps.append({"concept_id": c.id, "skill_key": c.key, "title": c.title,
+                          "reason": "Ready on your knowledge frontier (prerequisites met)."})
+    if not steps and concepts:
+        c = next((x for x in concepts if not x.is_foundation), concepts[0])
+        steps.append({"concept_id": c.id, "skill_key": c.key, "title": c.title,
+                      "reason": "First core concept on your roadmap."})
+
+    plan = {
+        "subject_id": subject_id,
+        "goal": onboard.get("goal", "unsure"),
+        "exam_date": onboard.get("exam_date"),
+        "first_session_slot": slot,
+        "hours_per_week": rhythm.get("hours_per_week", 5),
+        "recommended_steps": steps,
+    }
+    init_row = db.get(InitialProfileRow, p.get("profile_id")) if p.get("profile_id") else None
+    if init_row is None:
+        init_row = db.scalar(select(InitialProfileRow).where(
+            InitialProfileRow.owner_id == e.owner_id,
+            InitialProfileRow.subject_id == subject_id,
+        ).order_by(InitialProfileRow.created_at.desc()))
+    if init_row is not None:
+        init_row.first_plan = plan
+        db.flush()
+
+    events.publish(db, events.Event(events.PLAN_UPDATED, e.owner_id, plan))

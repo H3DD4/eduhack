@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from thinkfirst.core.db import get_db
@@ -90,3 +91,43 @@ def my_memory(subject_id: str | None = None, concept_id: str | None = None, user
 
     return {"events": [memory.event_public(e) for e in memory.history(db, user.id, subject_id, concept_id)],
             "recurring": memory.recurring_misconceptions(db, user.id, subject_id) if subject_id else []}
+
+
+class TrackingEventIn(BaseModel):
+    verb: str
+    object: dict
+    result: dict = {}
+    context: dict = {}
+    event_id: str | None = None
+    timestamp: str | None = None
+    subject_id: str | None = None
+
+
+@router.post("/tracking/events")
+def post_tracking_event(body: TrackingEventIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Layer 1 -> Layer 2 -> Layer 3 behavioral tracking ingestion (xAPI schema, consent-redacted)."""
+    from thinkfirst.data.memory import service as memory
+
+    raw = {"verb": body.verb, "object": body.object, "result": body.result, "context": body.context}
+    if body.event_id:
+        raw["event_id"] = body.event_id
+    if body.timestamp:
+        raw["timestamp"] = body.timestamp
+    return memory.ingest_tracking_event(db, user.id, raw, subject_id=body.subject_id)
+
+
+@router.get("/me/tracking/indicators")
+def get_tracking_indicators(subject_id: str | None = None, user: User = Depends(current_user),
+                            db: Session = Depends(get_db)):
+    from thinkfirst.data.memory import service as memory
+
+    return memory.get_indicators(db, user.id, subject_id)
+
+
+@router.get("/subjects/{subject_id}/mastery")
+def subject_mastery(subject_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    workspaces.get_subject(db, user.id, subject_id)
+    return {
+        "mastery": learner.skill_mastery_for_subject(db, user.id, subject_id),
+        "initial_profile": learner.initial_profile_for_subject(db, user.id, subject_id),
+    }

@@ -410,7 +410,7 @@ def help_step(db: Session, owner_id: str, task_id: str, kind: str, confirm_revea
     db.add(ev)
     t.help_level = max(t.help_level, level)
     s_help = db.get(StudySession, t.session_id)
-    events.publish(db, events.Event("help.given", owner_id, {
+    events.publish(db, events.Event(events.HELP_GIVEN, owner_id, {
         "subject_id": t.subject_id, "concept_id": s_help.concept_id if s_help else None, "task_id": t.id,
         "help_event_id": ev.id if ev.id else idempotency_key, "step": step, "level": level, "stage": t.stage,
         "item_key": (t.context or {}).get("item_key"),

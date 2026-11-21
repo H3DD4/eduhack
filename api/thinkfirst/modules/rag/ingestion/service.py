@@ -113,6 +113,9 @@ def _extract_job(db: Session, job: jobs.Job) -> dict:
     src.current_revision_id = rev.id
     src.status = "extracted"
     db.flush()
+    events.publish(db, events.Event(events.CONTENT_INDEXED, src.owner_id, {
+        "subject_id": src.subject_id, "source_id": src.id, "revision_id": rev.id, "pages": len(pages),
+    }))
     propose_scope(db, src.owner_id, src.subject_id)
     return {"source_id": src.id, "status": src.status, "pages": len(pages)}
 
@@ -246,6 +249,7 @@ def confirm_scope(db: Session, owner_id: str, subject_id: str, graph_revision_id
             s.status = "ready"
     workspaces.set_status(db, owner_id, subject_id, "ready", rev.id)
     events.publish(db, events.Event(events.SOURCE_CONFIRMED, owner_id, {"subject_id": subject_id, "graph_revision_id": rev.id}))
+    events.publish(db, events.Event(events.GRAPH_BUILT, owner_id, {"subject_id": subject_id, "graph_revision_id": rev.id}))
     return rev
 
 

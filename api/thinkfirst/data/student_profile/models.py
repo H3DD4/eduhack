@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, String, Text
+from sqlalchemy import JSON, Boolean, Date, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from thinkfirst.core.db import Base, OwnedMixin, TimestampMixin, new_id, utcnow
@@ -60,3 +60,46 @@ class ReviewSchedule(Base, OwnedMixin, TimestampMixin):
     basis: Mapped[str] = mapped_column(String(200), default="Adjustable 3-day default (a scheduling hypothesis, not an optimum)")
     idempotency_key: Mapped[str] = mapped_column(String(200), unique=True)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class SkillMasteryRow(Base, OwnedMixin, TimestampMixin):
+    """Per-skill BKT mastery P(L) with evidence count and graph-inference flag (Evidence brain)."""
+
+    __tablename__ = "skill_mastery"
+    __table_args__ = SCHEMA
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    subject_id: Mapped[str] = mapped_column(String(36), index=True)
+    concept_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    skill_key: Mapped[str] = mapped_column(String(64), index=True)
+    p_l: Mapped[float] = mapped_column(Float, default=0.3)
+    evidence_count: Mapped[int] = mapped_column(Integer, default=0)
+    inferred: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(24), default="uncertain")  # mastered | not_mastered | uncertain
+    theta: Mapped[float] = mapped_column(Float, default=1000.0)
+    expertise_stage: Mapped[str] = mapped_column(String(24), default="novice")
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class InitialProfileRow(Base, OwnedMixin, TimestampMixin):
+    """Calibrated initial profile written when an adaptive diagnostic finishes (Evidence brain -> Plan/Student)."""
+
+    __tablename__ = "initial_profiles"
+    __table_args__ = SCHEMA
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    subject_id: Mapped[str] = mapped_column(String(36), index=True)
+    diagnostic_session_id: Mapped[str] = mapped_column(String(36), unique=True)
+    theta: Mapped[float] = mapped_column(Float, default=1000.0)
+    frontier: Mapped[list] = mapped_column(JSON, default=list)
+    expertise: Mapped[dict] = mapped_column(JSON, default=dict)
+    misconceptions: Mapped[list] = mapped_column(JSON, default=list)
+    calibration_gap: Mapped[float | None] = mapped_column(Float, nullable=True)
+    behavior_priors: Mapped[dict] = mapped_column(JSON, default=dict)
+    data_quality: Mapped[dict] = mapped_column(JSON, default=dict)
+    student_view: Mapped[dict] = mapped_column(JSON, default=dict)
+    first_plan: Mapped[dict] = mapped_column(JSON, default=dict)
+    stop_reason: Mapped[str] = mapped_column(String(32), default="all_classified")
+    n_items: Mapped[int] = mapped_column(Integer, default=0)
+    low_confidence: Mapped[bool] = mapped_column(Boolean, default=False)
+    needs_retest: Mapped[bool] = mapped_column(Boolean, default=False)
