@@ -153,9 +153,12 @@ def test_learner_engine_end_to_end_in_the_app(student):
     st = student.get(f"/api/subjects/{sid}/learner-state").json()["state"]["concepts"][cid]
     assert st["scored_events"] == 1 and st["level"] == 1
     assert st["misconceptions"][0]["id"] == "distribution_first_term_only" and st["misconceptions"][0]["status"] == "active"
-    # next fresh unaided answer on the concept (a new session's first practice task) rewards the suggestion
+    # next fresh unaided answer on the concept rewards the suggestion. The engine never repeats the seen question:
+    # with the mistake active it picks a TRIGGER question (one where the same slip would show again).
     _, t2 = _practice(student, sid, cid)
-    student.post(f"/api/tasks/{t2['id']}/submit", json={"answer": "2x + 6", "expected_revision": t2["revision"],
+    assert t2["prompt"] != t["prompt"] and t2["context"]["is_trigger"] is True
+    assert "distribution_first_term_only" in t2["context"]["triggers"]
+    student.post(f"/api/tasks/{t2['id']}/submit", json={"answer": _correct(t2["prompt"]), "expected_revision": t2["revision"],
                                                         "idempotency_key": "ok"})
     with dbmod.session_factory()() as db:
         stats = db.query(BanditStat).all()
@@ -163,6 +166,14 @@ def test_learner_engine_end_to_end_in_the_app(student):
         assert not hasattr(stats[0], "owner_id")  # aggregates only
     st2 = student.get(f"/api/subjects/{sid}/learner-state").json()["state"]["concepts"][cid]
     assert st2["p_mastery"] > st["p_mastery"] and st2["unaided_successes"] == 1
+
+
+def _correct(prompt: str) -> str:
+    import sympy
+
+    from thinkfirst.modules.diagnostic.grading.mathcheck import parse
+
+    return str(sympy.expand(parse(prompt.removeprefix("Expand ").rstrip(".")))).replace("**", "^")
 
 
 def test_stateless_engine_api(student):

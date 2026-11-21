@@ -3,6 +3,8 @@
     python -m thinkfirst.modules.adaptation.engine fold      < fold_request.json
     python -m thinkfirst.modules.adaptation.engine recommend < recommend_request.json
     python -m thinkfirst.modules.adaptation.engine evaluate  < evaluate_request.json
+    python -m thinkfirst.modules.adaptation.engine select    < select_request.json
+    python -m thinkfirst.modules.adaptation.engine quality   < quality_request.json
     python -m thinkfirst.modules.adaptation.engine simulate  [n_students] [seed]   (prints an EvaluateRequest)
     python -m thinkfirst.modules.adaptation.engine schema
 """
@@ -14,7 +16,14 @@ import sys
 
 from pydantic import ValidationError
 
-from thinkfirst.modules.adaptation.engine import evaluate_json, fold_json, json_schemas, recommend_json
+from thinkfirst.modules.adaptation.engine import (
+    evaluate_json,
+    fold_json,
+    json_schemas,
+    quality_json,
+    recommend_json,
+    select_item_json,
+)
 from thinkfirst.modules.adaptation.engine.simulator import simulate
 
 
@@ -26,9 +35,10 @@ def main(argv: list[str]) -> int:
         elif cmd == "simulate":
             sim = simulate(int(argv[1]) if len(argv) > 1 else 50, int(argv[2]) if len(argv) > 2 else 7)
             out = {"student_events": sim["students"], "concepts": sim["concepts"]}
-        elif cmd in ("fold", "recommend", "evaluate"):
+        elif cmd in ("fold", "recommend", "evaluate", "select", "quality"):
             payload = json.loads(sys.stdin.buffer.read().decode("utf-8"))  # standard JSON: UTF-8 on every OS
-            out = {"fold": fold_json, "recommend": recommend_json, "evaluate": evaluate_json}[cmd](payload)
+            out = {"fold": fold_json, "recommend": recommend_json, "evaluate": evaluate_json, "select": select_item_json,
+                   "quality": quality_json}[cmd](payload)
         else:
             print(__doc__, file=sys.stderr)
             return 2

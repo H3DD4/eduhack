@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from thinkfirst.core import events
 from thinkfirst.data.memory import service as memory
 from thinkfirst.modules.adaptation import engine
-from thinkfirst.modules.adaptation.models import BanditStat
+from thinkfirst.modules.adaptation.models import BanditStat, HintStat, ItemStat
 from thinkfirst.modules.rag.ingestion import service as ingestion
 from thinkfirst.platform.workspaces import service as workspaces
 
@@ -179,3 +179,85 @@ def engine_review_date(db: Session, owner_id: str, subject_id: str, concept_id: 
     threshold = int(engine.schemas.EngineConfig().review_threshold_R * 100)
     return due, (f"Your estimated recall drops below {threshold}% around then "
                  f"(memory stability about {st['stability_days']:.1f} days). Change it freely.")
+
+
+# ---------------- question selection + question/hint quality (engine: items.py) ----------------
+
+def item_stats_json(db: Session, item_keys: list[str] | None = None) -> list[dict]:
+    q = select(ItemStat)
+    if item_keys is not None:
+        q = q.where(ItemStat.item_key.in_(item_keys))
+    out: dict[str, dict] = {}
+    for r in db.scalars(q).all():
+        out.setdefault(r.item_key, {"item_id": r.item_key})[r.band] = {"attempts": r.attempts, "correct": r.correct}
+    return list(out.values())
+
+
+def hint_stats_json(db: Session) -> list[dict]:
+    return [{"hint_id": h.hint_key, "shown": h.shown, "followed_by_correct": h.followed_by_correct}
+            for h in db.scalars(select(HintStat)).all()]
+
+
+def select_next_item(db: Session, owner_id: str, subject_id: str, concept_id: str, candidates: list[dict],
+                     also_seen: list[str]) -> dict:
+    """Engine choice of the next question for this student. 'Seen' = every item this student answered or got help
+    on (from memory) + items already used in the current session."""
+    state = learner_state(db, owner_id, subject_id)["concepts"].get(concept_id) or {}
+    seen = {e["item_id"] for e in memory.engine_events(db, owner_id, subject_id)
+            if e["concept_id"] == concept_id and e.get("item_id") and e["kind"] != "recommendation"}
+    return engine.select_item_json({
+        "concept_id": concept_id, "p_mastery": state.get("p_mastery", engine.schemas.BKTParams().prior),
+        "active_misconceptions": [m["id"] for m in state.get("misconceptions", []) if m["status"] in ("active", "remediating")],
+        "seen_item_ids": sorted(seen | set(also_seen)), "candidates": candidates,
+        "item_stats": item_stats_json(db, [c["item_id"] for c in candidates])})
+
+
+def quality_report(db: Session) -> dict:
+    return engine.quality_json({"items": item_stats_json(db), "hints": hint_stats_json(db)})
+
+
+def _band_before(db: Session, owner_id: str, subject_id: str, concept_id: str, exclude_event_id: str | None) -> str:
+    events_ = [e for e in memory.engine_events(db, owner_id, subject_id) if e["event_id"] != exclude_event_id]
+    st = engine.fold_json({"student_id": owner_id, "concepts": concept_specs(db, owner_id, subject_id),
+                           "events": events_})["concepts"].get(concept_id)
+    from thinkfirst.modules.adaptation.engine.policy import bucket
+
+    return bucket(st["p_mastery"] if st else engine.schemas.BKTParams().prior)
+
+
+@events.subscribe(events.ASSESSMENT_ACCEPTED)
+def _update_quality_stats(db: Session, e: events.Event) -> None:
+    """Question stats from fresh unaided answers (by the student's mastery band BEFORE answering);
+    hint stats from the answer that followed each hint on that question. Counts only — no student ids."""
+    p = e.payload
+    if p["outcome"] == "unscored" or not p.get("concept_id"):
+        return
+    from thinkfirst.data.memory.models import LearningEvent
+
+    reward = {"demonstrated": 1.0, "partial": 0.5}.get(p["outcome"], 0.0)
+    if p.get("item_key") and p.get("is_fresh") and p.get("assistance_level") == "none":
+        row = db.scalar(select(LearningEvent).where(LearningEvent.idempotency_key == f"mem:assess:{p['assessment_id']}"))
+        band = _band_before(db, e.owner_id, p["subject_id"], p["concept_id"], row.id if row else None)
+        stat = db.scalar(select(ItemStat).where(ItemStat.item_key == p["item_key"], ItemStat.band == band))
+        if stat is None:
+            stat = ItemStat(item_key=p["item_key"], band=band, attempts=0, correct=0.0)
+            db.add(stat)
+        stat.attempts += 1
+        stat.correct += reward
+    if p.get("assistance_level") not in (None, "none") and p.get("task_id"):
+        hints = db.scalars(select(LearningEvent).where(LearningEvent.owner_id == e.owner_id,
+                                                      LearningEvent.task_id == p["task_id"],
+                                                      LearningEvent.kind.in_(("hint", "worked_example")))).all()
+        for h in hints:
+            d = dict(h.detail or {})
+            if d.get("counted") or not d.get("hint_key"):
+                continue
+            hs = db.get(HintStat, d["hint_key"])
+            if hs is None:
+                hs = HintStat(hint_key=d["hint_key"], shown=0, followed_by_correct=0.0)
+                db.add(hs)
+            hs.shown += 1
+            hs.followed_by_correct += reward
+            d["counted"] = True
+            h.detail = d
+    db.flush()

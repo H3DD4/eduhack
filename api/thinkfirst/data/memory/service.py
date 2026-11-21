@@ -30,7 +30,8 @@ def _on_assessment(db: Session, e: events.Event) -> None:
     kind = {"demonstrated": "answer", "partial": "error", "not_demonstrated": "error", "unscored": "unscored"}.get(outcome, "answer")
     _add(db, e.owner_id, f"mem:assess:{p['assessment_id']}", kind=kind, summary=p.get("summary", "")[:500],
          detail={"outcome": outcome, "mode": p.get("mode"), "help": p.get("assistance", {}).get("help_steps", []),
-                 "criteria": {c["criterion"]: c["status"] for c in p.get("criteria", []) if c["status"] != "na"}},
+                 "criteria": {c["criterion"]: c["status"] for c in p.get("criteria", []) if c["status"] != "na"},
+                 "item_key": p.get("item_key")},
          outcome=ENGINE_OUTCOME.get(outcome, "unscored"), assistance=p.get("assistance_level", "none"),
          evidence=p.get("evidence", "sufficient"), is_fresh=bool(p.get("is_fresh", True)),
          misconception_id=p.get("misconception_id"), misconception_conf=0.9 if p.get("misconception_id") else None,
@@ -48,7 +49,9 @@ def _on_help(db: Session, e: events.Event) -> None:
     remediation = p["step"] in ("worked_example", "reveal")
     _add(db, e.owner_id, f"mem:help:{p['task_id']}:{p['level']}", kind="worked_example" if remediation else "hint",
          subject_id=p["subject_id"], concept_id=p.get("concept_id"), task_id=p["task_id"], stage=p.get("stage"),
-         summary=f"Help step {p['level']}: {p['step']}", detail={"step": p["step"], "level": p["level"]})
+         summary=f"Help step {p['level']}: {p['step']}",
+         detail={"step": p["step"], "level": p["level"], "item_key": p.get("item_key"), "hint_key": p.get("hint_key"),
+                 "counted": False})
 
 
 def log_recommendation(db: Session, owner_id: str, *, subject_id: str, concept_id: str, task_id: str | None,
@@ -71,7 +74,7 @@ def engine_events(db: Session, owner_id: str, subject_id: str) -> list[dict]:
             continue
         kind = MEMORY_KIND[r.kind] or STAGE_KIND.get(r.stage or "", "attempt")
         ev = {"event_id": r.id, "student_id": owner_id, "concept_id": r.concept_id, "ts": r.created_at.isoformat(),
-              "kind": kind, "item_id": r.task_id, "is_fresh": bool(r.is_fresh) if r.is_fresh is not None else True,
+              "kind": kind, "item_id": (r.detail or {}).get("item_key") or r.task_id, "is_fresh": bool(r.is_fresh) if r.is_fresh is not None else True,
               "assistance": r.assistance or "none", "evidence": r.evidence or "sufficient"}
         if kind in ("attempt", "review_check", "explanation"):
             ev.update(outcome=r.outcome or "unscored", misconception_id=r.misconception_id,

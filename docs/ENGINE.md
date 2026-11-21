@@ -196,3 +196,53 @@ only in the engine, so features can change without touching it.
 - Breaking contract change: bump `ENGINE_VERSION`.
 - With ≥ 1000 students: fit BKT with pyBKT; compare DKT/simpleKT through pyKT against this baseline using the same
   `evaluate` metrics; only then consider graph models.
+
+---
+
+## 11. Question selection and quality (`engine/items.py`)
+
+### Which question next — `select_item`
+Input: the student's mastery and active mistakes for the concept, the items they already saw, the candidate pool
+(each with a stable `item_id`, declared difficulty and **trigger** tags), and anonymous item statistics.
+
+1. **Never a seen item.** Every item the student already answered *or got help on* is excluded, so a retest after
+   help is always a new question and its success really counts.
+2. **Never a retired item** (see quality below).
+3. **Trigger first:** while a misconception is active or being fixed, prefer items tagged with it. Example: any
+   `a(b + c)` with two or more terms exposes "multiplied only the first term", and any minus sign exposes "sign
+   error". Passing one is the evidence that the bug is gone.
+4. **Difficulty matched to mastery:** `target = 0.2 + 0.6 × p_mastery` (new student → 0.26 = easy; strong → 0.77
+   = hard). An item's difficulty is its declared level (easy 0.25 / medium 0.5 / hard 0.75) until it has ≥ 10
+   answers; after that it's the **measured** difficulty `1 − success rate`. The closest item wins; ties go by order.
+
+Output: `item_id`, the reason ("Checks whether the mistake '…' is fixed" or "Difficulty 0.25 is closest to 0.26"),
+target and item difficulty, whether it's a trigger, and how many items were excluded and why.
+
+### How good is each question / hint — `quality`
+Built only from **anonymous counts** (`adaptation.item_stats`, `adaptation.hint_stats`):
+- an item counts a **fresh, unaided** answer in the student's mastery band *before* answering (low / mid / high)
+- `p_value` = success rate; `discrimination` = success(high band) − success(low band)
+
+| Flag | Rule |
+|---|---|
+| too_easy | ≥ 10 answers and ≥ 95% succeed |
+| too_hard | ≥ 10 answers and ≤ 15% succeed |
+| suspect | discrimination < 0 (strong students do worse), or strong students fail ≥ 50% |
+| **retire** | suspect with ≥ 20 answers → never served again (likely unclear question or wrong answer key) |
+
+Hints: after a hint on a question, the student's next answer on that question tells whether the hint helped.
+Below 20% success after ≥ 10 uses → **rewrite**.
+
+### In the app
+| Where | What happens |
+|---|---|
+| Practice task creation | `tutor/items.py` builds the pool (course exercises, SymPy algebra bank with difficulty + triggers, AI pack questions easy/medium/hard) → `adaptation.select_next_item` → engine `select_item` |
+| "Try a new question" / "One more question" | `POST /api/sessions/{id}/practice/next` asks the engine again |
+| Fresh unaided answer | `item_stats[item, band]` += 1 attempt (+ correct) |
+| Answer after hints | each hint's `hint_stats` += shown (+ correct) |
+| Report | `GET /api/quality` (aggregates only); stateless: `POST /api/engine/select`, `POST /api/engine/quality` |
+| UI | difficulty pill, "Checks your earlier mistake" badge, "Why this question", suggested help after a wrong answer |
+
+Privacy: per-student data stays private. Only counts per question and per hint are shared, with no student IDs.
+Generated AI questions differ per student, so their statistics mainly accumulate for deterministic questions
+(course exercises, the algebra bank). That's honest: shared statistics need shared questions.

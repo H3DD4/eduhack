@@ -89,9 +89,25 @@ export function PracticeStage({ view, subjectId, draft, onDraft, onHelp, onReloa
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [announce, setAnnounce] = useState("");
+  const [suggest, setSuggest] = useState<any>(null);
   const key = useRef(newKey());
   const fbRef = useRef<HTMLDivElement>(null);
   useEffect(() => { key.current = newKey(); }, [t?.revision]);
+  useEffect(() => { setSuggest(null); }, [t?.id]);
+  const newQuestion = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api(`/sessions/${view.session.id}/practice/next`, { method: "POST", json: { expected_revision: view.session.revision } });
+      onDraft("");
+      onReload();
+      setTimeout(() => document.getElementById("st-h")?.focus(), 80);
+    } catch (e) {
+      setErr((e as ApiError).code === "NO_MORE_ITEMS" ? "You have seen every question for this concept. Continue to explain-back." : (e as ApiError).message);
+    } finally {
+      setBusy(false);
+    }
+  };
   if (!t) return (
     <section className="space-y-4"><p>No exercise was extracted for this concept, and none could be generated and checked automatically.</p>
       <button className="btn-primary" onClick={onContinue}>Continue to explain-back</button></section>
@@ -103,7 +119,8 @@ export function PracticeStage({ view, subjectId, draft, onDraft, onHelp, onReloa
     setErr(null);
     try {
       const r = await api(`/tasks/${t.id}/submit`, { method: "POST", json: { answer: draft, expected_revision: t.revision, idempotency_key: key.current } });
-      setAnnounce(r.assessment.outcome === "demonstrated" ? "Correct and fully expanded." : "Feedback ready.");
+      setAnnounce(r.assessment.outcome === "demonstrated" ? "Correct." : "Feedback ready.");
+      setSuggest(r.suggested_help || null);
       onReload();
       setTimeout(() => fbRef.current?.focus(), 50);
     } catch (e) {
@@ -115,7 +132,10 @@ export function PracticeStage({ view, subjectId, draft, onDraft, onHelp, onReloa
   return (
     <section className="space-y-5" aria-labelledby="st-h">
       <LiveRegion message={announce} />
-      <div className="flex flex-wrap items-center gap-2"><OriginLabel origin={t.origin} detail={t.origin_detail} /><span className="text-meta text-ink-muted">{t.origin_detail}</span></div>
+      <div className="flex flex-wrap items-center gap-2"><OriginLabel origin={t.origin} detail={t.origin_detail} /><span className="text-meta text-ink-muted">{t.origin_detail}</span>
+        {t.context?.difficulty && <span className="pill text-ink">{({ easy: "Easy", medium: "Medium", hard: "Hard" } as any)[t.context.difficulty]}</span>}
+        {t.context?.is_trigger && <span className="pill text-help bg-help-surface">Checks your earlier mistake</span>}</div>
+      {t.context?.selection_reason && <p className="text-meta text-ink-muted">Why this question: {t.context.selection_reason}</p>}
       <h2 id="st-h" tabIndex={-1} className="text-problem font-bold"><MathText text={t.prompt} /></h2>
       {view.nudge && !t.last_assessment && <p className="rounded-detail bg-help-surface p-3 text-help"><strong>From your history:</strong> {view.nudge}</p>}
       {t.revealed && t.solution && (
@@ -148,7 +168,16 @@ export function PracticeStage({ view, subjectId, draft, onDraft, onHelp, onReloa
           <div className="mt-3"><RubricFeedback assessment={a} subjectId={subjectId} compact /></div>
         </div>
       )}
-      {(done || t.revealed) && <button className="btn-primary" onClick={t.revealed && !done ? onReload : onContinue}>{done ? "Continue to explain-back" : "Try the fresh check"}</button>}
+      {suggest && !done && (
+        <div className="rounded-detail bg-help-surface p-3 text-help" role="status">
+          <p><strong>Suggested next:</strong> {suggest.label}. It helped students who made the same slip.</p>
+          <button className="btn-help mt-2" onClick={onHelp}>Open the suggested help</button>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-3">
+        {(done || t.revealed) && <button className="btn-primary" onClick={t.revealed && !done ? onReload : onContinue}>{done ? "Continue to explain-back" : "Try the fresh check"}</button>}
+        {a && <button className="btn-secondary" onClick={newQuestion} disabled={busy}>{done ? "One more question" : "Try a new question"}</button>}
+      </div>
     </section>
   );
 }

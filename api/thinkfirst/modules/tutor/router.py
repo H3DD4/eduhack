@@ -92,6 +92,12 @@ def advance(session_id: str, body: AdvanceIn, user: User = Depends(current_user)
     return service.session_view(db, user.id, session_id)
 
 
+@router.post("/sessions/{session_id}/practice/next")
+def next_practice(session_id: str, body: AdvanceIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    service.next_practice(db, user.id, session_id, body.expected_revision)
+    return service.session_view(db, user.id, session_id)
+
+
 class SubmitIn(BaseModel):
     answer: str
     expected_revision: int

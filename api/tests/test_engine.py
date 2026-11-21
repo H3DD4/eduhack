@@ -238,7 +238,7 @@ def test_prediction_quality_close_to_the_oracle_ceiling():
 
 def test_json_schema_and_invalid_input_rejected():
     schemas = json_schemas()
-    assert set(schemas["inputs"]) == {"FoldRequest", "RecommendRequest", "EvaluateRequest"}
+    assert set(schemas["inputs"]) == {"FoldRequest", "RecommendRequest", "EvaluateRequest", "SelectRequest", "QualityRequest"}
     assert schemas["outputs"]["LearnerState"]["properties"]["engine_version"]
     with pytest.raises(ValidationError):
         fold_json({"student_id": "s1", "concepts": [], "events": [{"event_id": "x", "kind": "attempt"}]})
