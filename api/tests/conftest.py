@@ -29,7 +29,7 @@ def app_client(tmp_path):
     engine = dbmod.configure(os.environ["DATABASE_URL"])
     dbmod.create_all_for_tests(engine)
     set_storage(LocalStorage(str(tmp_path / "storage")))
-    from thinkfirst.modules.llm_gateway import service as llm
+    from thinkfirst.modules.tutor.llm import service as llm
 
     llm._cache.clear()
     from thinkfirst.main import create_app

@@ -14,10 +14,10 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
-from thinkfirst.modules.ingestion import service as ingestion
-from thinkfirst.modules.memory import service as memory
-from thinkfirst.modules.student_profile import service as profile
-from thinkfirst.modules.workspaces import service as workspaces
+from thinkfirst.data.memory import service as memory
+from thinkfirst.data.student_profile import service as profile
+from thinkfirst.modules.rag.ingestion import service as ingestion
+from thinkfirst.platform.workspaces import service as workspaces
 
 MISCONCEPTION_HINTS = {
     "distribution_first_term_only": "Last time the factor multiplied only the first term. Check every term inside the brackets.",

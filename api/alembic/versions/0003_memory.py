@@ -8,7 +8,7 @@ import sqlalchemy as sa
 
 import thinkfirst.models  # noqa: F401
 from alembic import op
-from thinkfirst.modules.memory.models import LearningEvent
+from thinkfirst.data.memory.models import LearningEvent
 
 revision = "0003_memory"
 down_revision = "0002_packs_resources"

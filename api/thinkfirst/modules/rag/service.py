@@ -12,7 +12,7 @@ import re
 
 from sqlalchemy.orm import Session
 
-from thinkfirst.modules.ingestion.extract import demo_embed
+from thinkfirst.modules.rag.ingestion.extract import demo_embed
 from thinkfirst.modules.rag.vector_store import store_for
 
 EMBEDDING_LABEL = "hashed bag-of-words (demo embedding; swap for a real embedding provider)"
@@ -27,7 +27,7 @@ def search_course(db: Session, owner_id: str, subject_id: str, query: str, k: in
 
 
 def search_open_courses(db: Session, owner_id: str, subject_id: str, query: str, max_chars: int = 3500) -> tuple[str, list[dict]]:
-    from thinkfirst.modules.resource_discovery import service as resources
+    from thinkfirst.modules.rag.agent import service as resources
 
     items = resources.for_subject(db, owner_id, subject_id)
     words = set(re.findall(r"\w{4,}", query.lower()))
@@ -58,7 +58,7 @@ def search_library(db: Session, query: str, k: int = 4) -> list[tuple[float, obj
     """Vector search over the SHARED open library (public, openly licensed content only)."""
     from sqlalchemy import select, text
 
-    from thinkfirst.modules.knowledge_library.models import SharedChunk
+    from thinkfirst.modules.rag.library.models import SharedChunk
 
     vec = embed(query)
     if db.get_bind().dialect.name == "postgresql":
@@ -75,8 +75,8 @@ def hybrid(db: Session, owner_id: str, subject_id: str, query: str, fetch_query:
     """1) the student's own course chunks; 2) the shared library built from earlier fetches (any user);
     3) only if nothing relevant exists, the resource agent fetches open content live, stores it for everyone, and we
     search again. `fetch_query` must be a concept/topic name — never the student's own text."""
-    from thinkfirst.modules.knowledge_library.models import LicensedContent
-    from thinkfirst.modules.resource_discovery import service as resources
+    from thinkfirst.modules.rag.agent import service as resources
+    from thinkfirst.modules.rag.library.models import LicensedContent
 
     local = [(s, c) for s, c in search_course(db, owner_id, subject_id, query, k=3) if s >= LOCAL_MIN]
     if local:

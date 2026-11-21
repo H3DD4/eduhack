@@ -9,15 +9,15 @@ import pytest
 from thinkfirst.core import jobs
 from thinkfirst.core.db import utcnow
 from thinkfirst.core.errors import Forbidden, QuotaExhausted
-from thinkfirst.modules.billing import service as billing
-from thinkfirst.modules.identity import service as identity
-from thinkfirst.modules.identity.models import AccessAuditLog, User
-from thinkfirst.modules.knowledge_library.models import (
+from thinkfirst.modules.rag.library.models import (
     Contribution,
     LicensedContent,
     can_share,
     can_store_licensed,
 )
+from thinkfirst.platform.billing import service as billing
+from thinkfirst.platform.identity import service as identity
+from thinkfirst.platform.identity.models import AccessAuditLog, User
 
 
 @pytest.fixture()
@@ -79,7 +79,7 @@ def test_contributions_stay_private_until_rights_confirmed():
 
 def test_gateway_falls_back_and_never_silently_uses_demo(db, monkeypatch):
     from thinkfirst.config import get_settings
-    from thinkfirst.modules.llm_gateway import service as llm
+    from thinkfirst.modules.tutor.llm import service as llm
 
     s = get_settings()
     monkeypatch.setattr(s, "llm_provider", "auto")

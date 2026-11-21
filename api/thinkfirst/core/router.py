@@ -7,8 +7,8 @@ from thinkfirst.config import get_settings
 from thinkfirst.core import jobs
 from thinkfirst.core.db import get_db
 from thinkfirst.core.deps import current_user, get_owned
-from thinkfirst.modules.identity.models import User
-from thinkfirst.modules.llm_gateway import service as llm
+from thinkfirst.modules.tutor.llm import service as llm
+from thinkfirst.platform.identity.models import User
 
 router = APIRouter(tags=["core"])
 

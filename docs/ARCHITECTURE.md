@@ -31,23 +31,23 @@ flowchart LR
   DIAG[Module DIAGNOSTIC\nmodules/diagnostic] --> ADAPT[Moteur d'ADAPTATION\nmodules/adaptation]
   ADAPT --> TUT[TUTEUR LLM\nmodules/tutor + llm_gateway]
   TUT <--> RAG[Module RAG\nmodules/rag]
-  ADAPT <--> PROF[(Profil élève\nmodules/student_profile\nPostgreSQL)]
-  ADAPT <--> MEM[(Historique & mémoire\nmodules/memory\nanswers, errors, misconceptions)]
+  ADAPT <--> PROF[(Profil élève\ndata/student_profile\nPostgreSQL)]
+  ADAPT <--> MEM[(Historique & mémoire\ndata/memory\nanswers, errors, misconceptions)]
   TUT -- events --> MEM
   TUT -- events --> PROF
   RAG <--> VEC[(Base vectorielle\npgvector / optional FAISS\nrag/vector_store.py)]
   RAG <--> LIB[(Shared open library + cours officiels\nknowledge_library.shared_chunks)]
-  LIB <-- live fetch on miss --> AGENT[Resource agent\nmodules/resource_discovery\nopen-licence only]
+  LIB <-- live fetch on miss --> AGENT[Resource agent\nmodules/rag/agent\nopen-licence only]
 ```
 
 | Diagram box | Package | Responsibility |
 |---|---|---|
 | Module DIAGNOSTIC | `modules/diagnostic` | Optional baseline (C03), misconception diagnosis after every graded answer → `misconception.detected` |
 | Moteur d'adaptation | `modules/adaptation` | Next action, suggested level / side quest, adaptive review interval, memory-based nudges — every decision has a readable reason |
-| Tuteur LLM | `modules/tutor` + `modules/llm_gateway` | Sessions, help ladder, Professor, concept packs; provider chain Groq → Gemini → Anthropic with circuit breaker |
+| Tuteur LLM | `modules/tutor` (incl. `tutor/llm`) | Sessions, help ladder, Professor, concept packs; provider chain Groq → Gemini → Anthropic with circuit breaker |
 | Module RAG | `modules/rag` | `hybrid()` retrieval: own course → shared library → live fetch; citations always returned |
-| Profil élève (PostgreSQL) | `modules/student_profile` | Evidence receipts, labels, concept summaries, review dates (schema `learner_model`) |
-| Historique & mémoire | `modules/memory` | Append-only `memory.learning_events` (RLS) fed by events; history + recurring misconceptions |
+| Profil élève (PostgreSQL) | `data/student_profile` | Evidence receipts, labels, concept summaries, review dates (schema `learner_model`) |
+| Historique & mémoire | `data/memory` | Append-only `memory.learning_events` (RLS) fed by events; history + recurring misconceptions |
 | Base vectorielle + cours officiels | `rag/vector_store.py`, `knowledge_library.shared_chunks` | pgvector per-student index (RLS) + shared open-content index; optional FAISS adapter |
 
 ### Hybrid retrieval
@@ -57,7 +57,18 @@ flowchart LR
    stores and indexes it once for everyone, links it privately to this subject, and the search runs again.
 The library grows with use; student data never enters the shared tables.
 
-## Modules (`api/thinkfirst/modules/*`)
+## Folder layout (current)
+
+```
+api/thinkfirst/
+  modules/    ONLY the 4 process modules: diagnostic (+grading), adaptation, tutor (+llm, +explain_back), rag (+ingestion, +library, +agent, vector_store)
+  data/       stores: student_profile (Profil élève), memory (Historique & mémoire)
+  platform/   support: identity, billing, workspaces
+  core/       db, events, jobs, storage, errors, logging
+```
+Each folder has a README with files, endpoints and tests. Postgres schema names were kept (e.g. `assessment`, `ingestion`, `learner_model`), so no data migration was needed.
+
+## Module responsibilities (original names → now inside the folders above)
 
 | Module | Owns (schema) | Status this run | Service interface highlights |
 |---|---|---|---|

@@ -13,8 +13,8 @@ from sqlalchemy import delete, inspect, select
 
 from thinkfirst.core.db import Base, configure, get_engine, session_factory
 from thinkfirst.fixtures import DEMO_COURSE_FILENAME, demo_course_pdf
-from thinkfirst.modules.identity.models import AuthSession, User
-from thinkfirst.modules.identity.service import hash_password
+from thinkfirst.platform.identity.models import AuthSession, User
+from thinkfirst.platform.identity.service import hash_password
 
 DEMO_EMAIL = "demo@thinkfirst.local"
 DEMO_PASSWORD = "demo-password"
@@ -55,8 +55,8 @@ def seed(reset: bool = False, with_subject: bool = False) -> str:
             reset_user(db, user.id)
             db.commit()
         if with_subject:
-            from thinkfirst.modules.ingestion import service as ingestion
-            from thinkfirst.modules.workspaces import service as workspaces
+            from thinkfirst.modules.rag.ingestion import service as ingestion
+            from thinkfirst.platform.workspaces import service as workspaces
 
             subject = workspaces.create_subject(db, user.id, "MATH 101 — Algebra Foundations (Demo data)")
             ingestion.add_source(db, user.id, subject.id, DEMO_COURSE_FILENAME, "application/pdf", demo_course_pdf(),

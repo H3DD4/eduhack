@@ -86,7 +86,7 @@ def test_lock_survives_pause_and_other_tabs(student):
 
 
 def test_quota_boundary_q01_and_no_double_charge(app_client, db_session):
-    from thinkfirst.modules.identity.models import User
+    from thinkfirst.platform.identity.models import User
 
     register(app_client, "q@example.com")
     sid, road = ready_subject(app_client)
@@ -158,7 +158,7 @@ def test_delete_attempt_removes_content_and_evidence(student):
 
 
 def test_metadata_only_llm_log_and_logs(student, db_session, capsys):
-    from thinkfirst.modules.llm_gateway.models import LLMCallLog
+    from thinkfirst.modules.tutor.llm.models import LLMCallLog
 
     secret = "My secret explanation about every term inside the brackets."
     sid, c, view = _to_stage(student, "explanation")

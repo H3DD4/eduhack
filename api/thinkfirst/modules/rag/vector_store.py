@@ -10,7 +10,7 @@ from typing import Protocol
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from thinkfirst.modules.ingestion.models import SourceChunk
+from thinkfirst.modules.rag.ingestion.models import SourceChunk
 
 
 class VectorStore(Protocol):

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sympy
 
-from thinkfirst.modules.assessment.mathcheck import equivalent, parse, pretty, split_product
+from thinkfirst.modules.diagnostic.grading.mathcheck import equivalent, parse, pretty, split_product
 
 LADDER = ["clarify", "strategy", "substep", "worked_example", "reveal"]
 LADDER_LABELS = {

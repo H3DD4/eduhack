@@ -59,8 +59,8 @@ def test_adaptive_review_interval_is_explained():
 
 
 def test_rag_retrieves_cited_course_chunks(student, db_session):
-    from thinkfirst.modules.identity.models import User
     from thinkfirst.modules.rag import service as rag
+    from thinkfirst.platform.identity.models import User
 
     sid, _ = ready_subject(student)
     uid = db_session.query(User).filter(User.email == "student@example.com").one().id
@@ -72,9 +72,9 @@ def test_rag_retrieves_cited_course_chunks(student, db_session):
 def test_hybrid_retrieval_local_then_library_then_live_fetch(app_client, db_session, monkeypatch):
     """Local course first; else the shared library; only on a miss does the agent fetch — and the fetched open
     content is reused for the next student without fetching again."""
-    from thinkfirst.modules.knowledge_library.models import LicensedContent
     from thinkfirst.modules.rag import service as rag
-    from thinkfirst.modules.resource_discovery import service as resources
+    from thinkfirst.modules.rag.agent import service as resources
+    from thinkfirst.modules.rag.library.models import LicensedContent
 
     calls = []
 
@@ -102,8 +102,8 @@ def test_hybrid_retrieval_local_then_library_then_live_fetch(app_client, db_sess
 
 
 def test_hybrid_prefers_the_students_own_course(student, db_session):
-    from thinkfirst.modules.identity.models import User
     from thinkfirst.modules.rag import service as rag
+    from thinkfirst.platform.identity.models import User
 
     sid, _ = ready_subject(student)
     uid = db_session.query(User).filter(User.email == "student@example.com").one().id
@@ -120,7 +120,7 @@ def test_long_topic_label_fits_postgres_column_and_failed_job_is_reported(studen
 
 
 def test_failed_topic_job_moves_subject_out_of_processing(student, monkeypatch):
-    from thinkfirst.modules.ingestion import service as ingestion
+    from thinkfirst.modules.rag.ingestion import service as ingestion
 
     def boom(db, job):
         raise RuntimeError("simulated failure")

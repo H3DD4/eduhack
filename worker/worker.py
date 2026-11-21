@@ -25,7 +25,7 @@ def _purge() -> int:
     content-free SECURITY DEFINER function; each deletion then runs inside that owner's RLS context."""
     from sqlalchemy import text
 
-    from thinkfirst.modules.explain_back.service import purge_expired
+    from thinkfirst.modules.tutor.explain_back.service import purge_expired
 
     factory = session_factory()
     with factory() as db:

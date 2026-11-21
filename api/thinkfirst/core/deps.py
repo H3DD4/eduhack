@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 from thinkfirst.config import get_settings
 from thinkfirst.core.db import current_user_id, get_db
 from thinkfirst.core.errors import NotFound, Unauthorized
-from thinkfirst.modules.identity.models import User
-from thinkfirst.modules.identity.service import resolve_session
+from thinkfirst.platform.identity.models import User
+from thinkfirst.platform.identity.service import resolve_session
 
 
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from thinkfirst.modules.assessment import mathcheck
-from thinkfirst.modules.assessment.explanation import (
+from thinkfirst.data.student_profile.service import label_for
+from thinkfirst.modules.diagnostic.grading import mathcheck
+from thinkfirst.modules.diagnostic.grading.explanation import (
     choose_followup,
     split_sentences,
     validate_explanation_output,
 )
-from thinkfirst.modules.assessment.rubrics import DISTRIBUTIVE
-from thinkfirst.modules.student_profile.service import label_for
+from thinkfirst.modules.diagnostic.grading.rubrics import DISTRIBUTIVE
 from thinkfirst.modules.tutor import policy
 from thinkfirst.modules.tutor.generators import expand_hints, transfer_task
 from thinkfirst.modules.tutor.models import Task

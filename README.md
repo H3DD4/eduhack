@@ -6,8 +6,11 @@ engineering students. The student does the thinking; ThinkFirst organizes, guide
 This repository implements milestones **M0–M2** plus the eight-state demo (see `docs/RUN_REPORT.md`).
 
 ```
-api/      FastAPI modular monolith (Python 3.12): identity, workspaces, ingestion, tutor, assessment,
-          explain_back, learner_model, billing, llm_gateway (+ documented stubs)
+api/      FastAPI backend (Python 3.12)
+            thinkfirst/modules/   the 4 process modules: diagnostic, adaptation, tutor, rag
+            thinkfirst/data/      student_profile, memory
+            thinkfirst/platform/  identity, billing, workspaces
+            thinkfirst/core/      db, events, jobs, storage
 worker/   ARQ (Redis) worker running the same idempotent jobs
 web/      Next.js App Router + TypeScript + Tailwind (Atlas Studio tokens), Playwright e2e
 infra/    Postgres init (non-superuser RLS role)

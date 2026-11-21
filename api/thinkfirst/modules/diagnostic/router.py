@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 from thinkfirst.core.db import get_db
 from thinkfirst.core.deps import current_user
 from thinkfirst.modules.diagnostic import service
-from thinkfirst.modules.identity.models import User
-from thinkfirst.modules.workspaces import service as workspaces
+from thinkfirst.platform.identity.models import User
+from thinkfirst.platform.workspaces import service as workspaces
 
 router = APIRouter(tags=["diagnostic"])
 

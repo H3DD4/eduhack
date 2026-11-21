@@ -8,7 +8,7 @@ import sqlalchemy as sa
 
 import thinkfirst.models  # noqa: F401
 from alembic import op
-from thinkfirst.modules.knowledge_library.models import SubjectResourceLink
+from thinkfirst.modules.rag.library.models import SubjectResourceLink
 from thinkfirst.modules.tutor.models import ConceptPack
 
 revision = "0002_packs_resources"

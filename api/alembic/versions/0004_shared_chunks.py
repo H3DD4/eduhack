@@ -6,7 +6,7 @@ Revises: 0003_memory
 
 import thinkfirst.models  # noqa: F401
 from alembic import op
-from thinkfirst.modules.knowledge_library.models import SharedChunk
+from thinkfirst.modules.rag.library.models import SharedChunk
 
 revision = "0004_shared_chunks"
 down_revision = "0003_memory"

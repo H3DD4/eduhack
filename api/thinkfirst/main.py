@@ -9,13 +9,13 @@ import thinkfirst.models  # noqa: F401 — registers models, jobs, event handler
 from thinkfirst.core.errors import AppError, app_error_handler
 from thinkfirst.core.logging import RequestLogMiddleware, setup_logging
 from thinkfirst.core.router import router as core_router
-from thinkfirst.modules.billing.router import router as billing_router
+from thinkfirst.data.student_profile.router import router as learner_router
 from thinkfirst.modules.diagnostic.router import router as diagnostic_router
-from thinkfirst.modules.explain_back.router import router as explain_router
-from thinkfirst.modules.identity.router import router as identity_router
-from thinkfirst.modules.student_profile.router import router as learner_router
+from thinkfirst.modules.tutor.explain_back.router import router as explain_router
 from thinkfirst.modules.tutor.router import router as tutor_router
-from thinkfirst.modules.workspaces.router import router as workspaces_router
+from thinkfirst.platform.billing.router import router as billing_router
+from thinkfirst.platform.identity.router import router as identity_router
+from thinkfirst.platform.workspaces.router import router as workspaces_router
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 CSRF_EXEMPT = {"/api/auth/google/callback"}

@@ -12,9 +12,9 @@ from sqlalchemy.orm import Session
 
 from thinkfirst.core import events
 from thinkfirst.core.errors import NotFound
-from thinkfirst.modules.assessment import mathcheck
-from thinkfirst.modules.ingestion import service as ingestion
-from thinkfirst.modules.student_profile import service as profile
+from thinkfirst.data.student_profile import service as profile
+from thinkfirst.modules.diagnostic.grading import mathcheck
+from thinkfirst.modules.rag.ingestion import service as ingestion
 
 MISCONCEPTION_DETECTED = "misconception.detected"
 

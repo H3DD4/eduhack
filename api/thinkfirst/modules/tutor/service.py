@@ -17,16 +17,16 @@ from thinkfirst.core import events, jobs
 from thinkfirst.core.db import utcnow
 from thinkfirst.core.deps import get_owned
 from thinkfirst.core.errors import Conflict, LeaseHeld, NotFound, StaleRevision, ValidationFailed
-from thinkfirst.modules.assessment import mathcheck
-from thinkfirst.modules.assessment import service as assessment
-from thinkfirst.modules.billing import service as billing
-from thinkfirst.modules.ingestion import service as ingestion
-from thinkfirst.modules.llm_gateway import service as llm
-from thinkfirst.modules.llm_gateway.service import register_demo
-from thinkfirst.modules.student_profile import service as learner
+from thinkfirst.data.student_profile import service as learner
+from thinkfirst.modules.diagnostic.grading import mathcheck
+from thinkfirst.modules.diagnostic.grading import service as assessment
+from thinkfirst.modules.rag.ingestion import service as ingestion
 from thinkfirst.modules.tutor import generators, policy
+from thinkfirst.modules.tutor.llm import service as llm
+from thinkfirst.modules.tutor.llm.service import register_demo
 from thinkfirst.modules.tutor.models import HelpEvent, Reflection, StudySession, Task
-from thinkfirst.modules.workspaces import service as workspaces
+from thinkfirst.platform.billing import service as billing
+from thinkfirst.platform.workspaces import service as workspaces
 
 STAGES = {
     "learn": ["recall", "learn", "practice", "explanation", "followup", "transfer", "summary"],
@@ -283,7 +283,7 @@ def _followup_job(db: Session, job: jobs.Job) -> dict:
     rubric = assessment.get_rubric(db, s.owner_id, s.subject_id, s.concept_key)
     attempts = assessment.attempts_for_task(db, s.owner_id, expl.id)
     a = assessment.assessment_for_attempt(db, attempts[-1].id) if attempts else None
-    from thinkfirst.modules.assessment.explanation import choose_followup
+    from thinkfirst.modules.diagnostic.grading.explanation import choose_followup
 
     fu = choose_followup(a.criteria if a else [], rubric.followup_bank)
     t = Task(owner_id=s.owner_id, session_id=s.id, subject_id=s.subject_id, stage="followup", kind="explain",
@@ -589,7 +589,7 @@ def submit_confirmed_explanation(db: Session, owner_id: str, task_id: str, *, te
 
 @jobs.job_handler("tutor.assess_explanation")
 def _assess_job(db: Session, job: jobs.Job) -> dict:
-    from thinkfirst.modules.assessment.explanation import split_sentences
+    from thinkfirst.modules.diagnostic.grading.explanation import split_sentences
 
     attempt = db.get(assessment.Attempt, job.payload["attempt_id"])
     t = db.get(Task, job.payload["task_id"])

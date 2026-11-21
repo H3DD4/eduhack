@@ -10,10 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from thinkfirst.core import events, jobs
-from thinkfirst.modules.assessment import service as assessment
-from thinkfirst.modules.assessment.rubrics import CRITERIA
-from thinkfirst.modules.ingestion import service as ingestion
-from thinkfirst.modules.llm_gateway import service as llm
+from thinkfirst.modules.diagnostic.grading import service as assessment
+from thinkfirst.modules.diagnostic.grading.rubrics import CRITERIA
+from thinkfirst.modules.rag.ingestion import service as ingestion
+from thinkfirst.modules.tutor.llm import service as llm
 from thinkfirst.modules.tutor.models import ConceptPack
 
 

@@ -1,25 +1,25 @@
 """Import every module's models so metadata/migrations see all tables, and register job/event handlers."""
 
 from thinkfirst.core import jobs  # noqa: F401
-from thinkfirst.modules.assessment import models as _assessment_models  # noqa: F401
-from thinkfirst.modules.assessment import service as _assessment_service  # noqa: F401  (event subscriber)
-from thinkfirst.modules.billing import models as _billing  # noqa: F401
-from thinkfirst.modules.explain_back import models as _eb  # noqa: F401
-from thinkfirst.modules.explain_back import service as _eb_service  # noqa: F401  (job handler)
-from thinkfirst.modules.identity import models as _identity  # noqa: F401
-from thinkfirst.modules.ingestion import models as _ingestion  # noqa: F401
-from thinkfirst.modules.ingestion import service as _ingestion_service  # noqa: F401  (job handler)
-from thinkfirst.modules.knowledge_library import models as _kl  # noqa: F401
-from thinkfirst.modules.llm_gateway import models as _llm  # noqa: F401
-from thinkfirst.modules.memory import models as _memory  # noqa: F401
-from thinkfirst.modules.memory import service as _memory_service  # noqa: F401  (event subscribers)
-from thinkfirst.modules.resource_discovery import service as _rd  # noqa: F401
-from thinkfirst.modules.student_profile import models as _lm  # noqa: F401
-from thinkfirst.modules.student_profile import service as _lm_service  # noqa: F401  (event subscribers)
+from thinkfirst.data.memory import models as _memory  # noqa: F401
+from thinkfirst.data.memory import service as _memory_service  # noqa: F401  (event subscribers)
+from thinkfirst.data.student_profile import models as _lm  # noqa: F401
+from thinkfirst.data.student_profile import service as _lm_service  # noqa: F401  (event subscribers)
+from thinkfirst.modules.diagnostic.grading import models as _assessment_models  # noqa: F401
+from thinkfirst.modules.diagnostic.grading import service as _assessment_service  # noqa: F401  (event subscriber)
+from thinkfirst.modules.rag.agent import service as _rd  # noqa: F401
+from thinkfirst.modules.rag.ingestion import models as _ingestion  # noqa: F401
+from thinkfirst.modules.rag.ingestion import service as _ingestion_service  # noqa: F401  (job handler)
+from thinkfirst.modules.rag.library import models as _kl  # noqa: F401
 from thinkfirst.modules.tutor import models as _tutor  # noqa: F401
 from thinkfirst.modules.tutor import packs as _packs  # noqa: F401  (job handler)
 from thinkfirst.modules.tutor import service as _tutor_service  # noqa: F401  (job handlers)
-from thinkfirst.modules.workspaces import models as _ws  # noqa: F401
+from thinkfirst.modules.tutor.explain_back import models as _eb  # noqa: F401
+from thinkfirst.modules.tutor.explain_back import service as _eb_service  # noqa: F401  (job handler)
+from thinkfirst.modules.tutor.llm import models as _llm  # noqa: F401
+from thinkfirst.platform.billing import models as _billing  # noqa: F401
+from thinkfirst.platform.identity import models as _identity  # noqa: F401
+from thinkfirst.platform.workspaces import models as _ws  # noqa: F401
 
 # Tables holding private student data (owner_id). Postgres RLS policies are created for each.
 PRIVATE_TABLES = [

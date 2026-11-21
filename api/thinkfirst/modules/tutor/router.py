@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from thinkfirst.core.db import get_db
 from thinkfirst.core.deps import current_user
-from thinkfirst.modules.identity.models import User
 from thinkfirst.modules.tutor import service
+from thinkfirst.platform.identity.models import User
 
 router = APIRouter(tags=["tutor"])
 
