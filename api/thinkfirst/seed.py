@@ -55,16 +55,22 @@ def seed(reset: bool = False, with_subject: bool = False) -> str:
             reset_user(db, user.id)
             db.commit()
         if with_subject:
+            from thinkfirst.modules.diagnostic import service as diagnostic
             from thinkfirst.modules.rag.ingestion import service as ingestion
             from thinkfirst.platform.workspaces import service as workspaces
 
-            subject = workspaces.create_subject(db, user.id, "MATH 101 — Algebra Foundations (Demo data)")
-            ingestion.add_source(db, user.id, subject.id, DEMO_COURSE_FILENAME, "application/pdf", demo_course_pdf(),
-                                 "course", True)
-            rev = ingestion.proposed_revision(db, user.id, subject.id)
-            if rev is None:
-                raise SystemExit("Demo extraction did not produce a scope (is JOB_MODE=inline?).")
-            ingestion.confirm_scope(db, user.id, subject.id, rev.id, [])
+            existing = workspaces.list_subjects(db, user.id)
+            if existing:
+                subject = existing[0]
+            else:
+                subject = workspaces.create_subject(db, user.id, "MATH 101 — Algebra Foundations (Demo data)")
+                ingestion.add_source(db, user.id, subject.id, DEMO_COURSE_FILENAME, "application/pdf", demo_course_pdf(),
+                                     "course", True)
+                rev = ingestion.proposed_revision(db, user.id, subject.id)
+                if rev is None:
+                    raise SystemExit("Demo extraction did not produce a scope (is JOB_MODE=inline?).")
+                ingestion.confirm_scope(db, user.id, subject.id, rev.id, [])
+            diagnostic.ensure_knowledge_space(db, user.id, subject.id)
         db.commit()
         return user.id
 

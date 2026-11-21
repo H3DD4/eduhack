@@ -33,6 +33,8 @@ labeled demo adapters ("Simulated assessment", "Demo transcription"). Algebra ch
 
 ## Run without Docker (fast local dev)
 
+On Windows, double-click or run **`run-thinkfirst.bat`** (or `start.bat`, or `run-thinkfirst.bat --docker` for the Docker stack). It seeds the database and calibrated diagnostic item bank, syncs the `branding/` assets, installs missing packages, starts the FastAPI backend on port `8000` and the Next.js frontend on port `3000`, and opens `http://localhost:3000`.
+
 Prerequisites: Python 3.12 (`uv` recommended), Node 22.
 
 ```bash

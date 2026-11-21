@@ -17,6 +17,8 @@ function Privacy() {
   const { me, caps, refreshMe } = useMe();
   const grants = useApi<any>("/me/consent-grants");
   const audit = useApi<any>("/me/audit-log");
+  const trackingConsent = useApi<any>("/me/consent");
+  const indicators = useApi<any>("/me/tracking/indicators");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const prefs = me?.preferences || {};
@@ -28,10 +30,65 @@ function Privacy() {
       setMsg("Saved.");
     } catch (e: any) { setErr(e.message); }
   };
+  const toggleTier = async (tier: string, granted: boolean) => {
+    setErr(null);
+    try {
+      await api("/me/consent", {
+        method: "PATCH",
+        json: granted ? { revoke: [tier] } : { grant: [tier] },
+      });
+      trackingConsent.reload();
+      indicators.reload();
+      setMsg("Consent updated.");
+    } catch (e: any) { setErr(e.message); }
+  };
+  const cData = trackingConsent.data?.consent;
+  const grantedSet = new Set<string>(cData?.granted_tiers || ["essential"]);
   return (
     <div className="space-y-6">
       {err && <ErrorBox message={err} />}
       <p role="status" className="sr-only">{msg}</p>
+      <section className="card space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-section">Adaptation &amp; behavioral tracking tiers</h2>
+          {indicators.data?.actor && <span className="badge">Pseudonymous ID: {indicators.data.actor}</span>}
+        </div>
+        <p className="text-meta text-ink-muted">
+          Events use a pseudonymous ID and never track camera, microphone outside voice explain-back, keystrokes outside the answer box, or location.
+        </p>
+        {cData?.tiers?.map((t: any) => {
+          const isOn = grantedSet.has(t.tier);
+          return (
+            <div key={t.tier} className="flex flex-wrap items-center justify-between gap-3 rounded-detail border-2 border-border p-3">
+              <div className="max-w-md">
+                <p className="font-semibold capitalize">{t.tier.replace("_", " ")}</p>
+                <p className="text-meta text-ink-muted">{t.covers}</p>
+              </div>
+              {t.can_turn_off ? (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isOn}
+                  onClick={() => toggleTier(t.tier, isOn)}
+                  className="btn-secondary !min-h-[38px] !px-3 text-meta"
+                >
+                  {isOn ? "On (Turn off)" : "Off (Turn on)"}
+                </button>
+              ) : (
+                <span className="badge">Always on</span>
+              )}
+            </div>
+          );
+        })}
+        {indicators.data?.student_effects?.length > 0 && (
+          <div className="rounded-detail bg-soft p-3 text-meta">
+            <p className="font-semibold">Current pacing adaptations:</p>
+            <ul className="mt-1 list-disc pl-5">
+              {indicators.data.student_effects.map((ef: string, i: number) => <li key={i}>{ef}</li>)}
+            </ul>
+          </div>
+        )}
+      </section>
       <section className="card space-y-3">
         <h2 className="text-section">Recordings</h2>
         <fieldset>
@@ -109,8 +166,8 @@ function Settings() {
         <h1 className="mb-4 text-page-compact">{SECTIONS.find((x) => x.k === section)?.t || "Settings"}</h1>
         {section === "account" && <div className="card"><p>Signed in as <strong>{me?.email}</strong>.</p><p className="mt-2 text-meta text-ink-muted">Password changes arrive later.</p></div>}
         {section === "privacy" && <Privacy />}
-        {section === "language" && <div className="card"><p>English. French and Arabic (with right-to-left layout) arrive in M7.</p></div>}
-        {section === "notifications" && <div className="card"><p>Not connected. Opt-in reminders arrive in M7; ThinkFirst never asks for browser notification permission unprompted.</p></div>}
+        {section === "language" && <div className="card"><p>English. French and Arabic (with right-to-left layout) are coming soon.</p></div>}
+        {section === "notifications" && <div className="card"><p>Not connected. Opt-in reminders are coming soon; ThinkFirst never asks for browser notification permission unprompted.</p></div>}
         {section === "plan" && <div className="card"><p>Free plan (mock entitlement provider). No payments exist in this build.</p></div>}
       </div>
     </div>

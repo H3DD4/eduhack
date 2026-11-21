@@ -43,6 +43,18 @@ def _prefetch_first_levels(db: Session, e: events.Event) -> None:
         ensure_pack(db, e.owner_id, e.payload["subject_id"], c.id)
 
 
+@events.subscribe(events.PROFILE_READY)
+def _prefetch_frontier_levels(db: Session, e: events.Event) -> None:
+    """Warm up concept packs (grounded via Qdrant + HF RAG) for the student's diagnosed knowledge frontier."""
+    sid = e.payload.get("subject_id")
+    frontier = set(e.payload.get("frontier") or [])
+    if not sid or not frontier:
+        return
+    for c in ingestion.active_concepts(db, e.owner_id, sid):
+        if c.key in frontier:
+            ensure_pack(db, e.owner_id, sid, c.id)
+
+
 def get_pack(db: Session, owner_id: str, concept_id: str) -> ConceptPack | None:
     return db.scalar(select(ConceptPack).where(ConceptPack.owner_id == owner_id, ConceptPack.concept_id == concept_id))
 

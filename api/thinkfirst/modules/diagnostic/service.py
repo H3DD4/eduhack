@@ -290,11 +290,58 @@ def _build_skill_graph(concepts: list) -> SkillGraph:
         return SkillGraph(skills, safe_edges)
 
 
-def _generic_items_for_concept(c, idx: int) -> list[dict]:
+def _generic_items_for_concept(db: Session, owner_id: str, subject_id: str, c, idx: int) -> list[dict]:
+    """Build verified diagnostic items for a non-curated concept, grounded by the RAG stack (Qdrant + HF / fallback)
+    and any SymPy-verifiable extracted exercises from the student's uploaded course."""
+    import sympy
+
+    from thinkfirst.modules.rag import service as rag
+
     base_d = 950.0 + idx * 60.0
+    out: list[dict] = []
+
+    # 1. Any extracted algebraic exercises from the uploaded course file, verified symbolically with SymPy
+    for s_idx, src_item in enumerate(ingestion.items_for(db, owner_id, subject_id, c.key), start=1):
+        if src_item.kind == "expand" and src_item.expression:
+            parsed = mathcheck.parse(src_item.expression)
+            if parsed is not None:
+                expanded = mathcheck.pretty(sympy.expand(parsed))
+                sp = mathcheck.split_product(src_item.expression)
+                wrong_first = (
+                    mathcheck.pretty(sp.factor * sp.terms[0] + sympy.Add(*sp.terms[1:]))
+                    if sp and len(sp.terms) >= 2 else f"{expanded} + 1"
+                )
+                wrong_sign = (
+                    mathcheck.pretty(sp.factor * sp.terms[0] - sp.factor * sympy.Add(*sp.terms[1:]))
+                    if sp and len(sp.terms) >= 2 else f"-({expanded})"
+                )
+                out.append({
+                    "suffix": f"src{s_idx}",
+                    "prompt": src_item.prompt,
+                    "kind": "expand",
+                    "expression": src_item.expression,
+                    "answer_key": expanded,
+                    "difficulty": base_d,
+                    "typical_ms": 40_000,
+                    "source_page": src_item.page_no,
+                    "options": [
+                        {"id": "a", "text": expanded, "misconception": None},
+                        {"id": "b", "text": wrong_first, "misconception": "distribution_first_term_only"},
+                        {"id": "c", "text": wrong_sign, "misconception": "sign_error"},
+                    ],
+                })
+
+    # 2. Ground in the RAG stack (Qdrant + HF multilingual embedder or fallback) for page citations & context
+    _, cites = rag.ground(db, owner_id, subject_id, f"{c.title} {c.objective}")
+    rag_page = next((ci.get("page") for ci in cites if ci.get("page")), None)
+    if rag_page is None and c.citations:
+        rag_page = c.citations[0].get("page")
+
     obj = (c.objective or f"Apply the core idea of {c.title}.").rstrip(".")
-    return [
-        {
+    for n, delta in enumerate((-30.0, 0.0, 30.0), start=1):
+        if len(out) >= 3:
+            break
+        out.append({
             "suffix": str(n),
             "prompt": f"Which statement best captures the core goal of “{c.title}”? (Check {n})",
             "kind": "mcq",
@@ -302,6 +349,7 @@ def _generic_items_for_concept(c, idx: int) -> list[dict]:
             "answer_key": obj,
             "difficulty": base_d + delta,
             "typical_ms": 40_000,
+            "source_page": rag_page,
             "options": [
                 {"id": "a", "text": obj, "misconception": None},
                 {"id": "b", "text": f"Skip prerequisites and memorize {c.title} formulas only",
@@ -309,9 +357,8 @@ def _generic_items_for_concept(c, idx: int) -> list[dict]:
                 {"id": "c", "text": f"Apply {c.title} without checking conditions or limits",
                  "misconception": "ignored_conditions"},
             ],
-        }
-        for n, delta in enumerate((-30.0, 0.0, 30.0), start=1)
-    ]
+        })
+    return out
 
 
 def ensure_knowledge_space(db: Session, owner_id: str, subject_id: str) -> tuple[SkillGraph, ItemBank, list[DiagnosticItemRow]]:
@@ -325,11 +372,14 @@ def ensure_knowledge_space(db: Session, owner_id: str, subject_id: str) -> tuple
     existing_keys = {r.item_key for r in rows}
     created = False
     for idx, c in enumerate(concepts):
-        templates = CURATED_BANK.get(c.key) or _generic_items_for_concept(c, idx)
+        templates = CURATED_BANK.get(c.key) or _generic_items_for_concept(db, owner_id, subject_id, c, idx)
         for tmpl in templates:
             ikey = f"{c.key}_{tmpl['suffix']}"
             if ikey in existing_keys:
                 continue
+            page = tmpl.get("source_page")
+            if page is None and c.citations:
+                page = c.citations[0].get("page")
             row = DiagnosticItemRow(
                 owner_id=owner_id,
                 subject_id=subject_id,
@@ -348,7 +398,7 @@ def ensure_knowledge_space(db: Session, owner_id: str, subject_id: str) -> tuple
                 calibrated=True,
                 n_answers=30,
                 language="en",
-                source_page=c.citations[0].get("page") if c.citations else None,
+                source_page=page,
             )
             db.add(row)
             rows.append(row)
@@ -773,4 +823,15 @@ def diagnostic_overview(db: Session, owner_id: str, subject_id: str) -> dict:
         "items": baseline_items(db, owner_id, subject_id),
         "adaptive": state,
         "knowledge_space": knowledge_space_public(db, owner_id, subject_id),
+    }
+
+
+def stack() -> dict:
+    """Capability descriptor exposed by GET /api/capabilities alongside rag.stack()."""
+    return {
+        "engine": "cat_kst_bkt_elo",
+        "max_items": 12,
+        "max_minutes": 10,
+        "tracking_schema": "xapi",
+        "consent_tiers": ["essential", "learning_behavior", "voice_images", "research"],
     }

@@ -28,6 +28,9 @@ from thinkfirst.platform.workspaces import service as workspaces
 MISCONCEPTION_HINTS = {
     "distribution_first_term_only": "Last time the factor multiplied only the first term. Check every term inside the brackets.",
     "sign_error": "Last time a sign flipped. Check the sign of each product.",
+    "forgot_to_subtract": "In your diagnostic, the constant wasn't subtracted from both sides before dividing.",
+    "order_multiply_before_brackets": "In your diagnostic, multiplication ran before brackets. Evaluate inside brackets first.",
+    "combined_unlike_terms": "Keep variable terms (like 5x) separate from constant numbers.",
 }
 
 

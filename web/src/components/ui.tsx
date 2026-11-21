@@ -1,12 +1,13 @@
 "use client";
 import katex from "katex";
 import Link from "next/link";
+import { Mark } from "./Logo";
 import { ReactNode, useEffect, useRef } from "react";
 
 /* ---------- honest labels (never colour-only) ---------- */
 
 export function DemoLabel({ children = "Demo data" }: { children?: ReactNode }) {
-  return <span className="pill text-ink bg-discovery/40" style={{ borderColor: "var(--ink)" }}>◆ {children}</span>;
+  return <span className="pill text-ink bg-soft" style={{ borderColor: "var(--ink)" }}>◆ {children}</span>;
 }
 
 export function SimulatedLabel({ label }: { label?: string }) {
@@ -65,8 +66,8 @@ export function LiveRegion({ message }: { message: string }) {
 export function ErrorBox({ title = "Something needs attention", message, onRetry, children }:
   { title?: string; message: string; onRetry?: () => void; children?: ReactNode }) {
   return (
-    <div role="alert" className="rounded-card border-2 border-review bg-review-surface p-4 text-ink">
-      <p className="font-bold text-review">{title}</p>
+    <div role="alert" className="fade-in rounded-card border-2 border-review bg-review-surface p-4 text-ink">
+      <p className="text-review">{title}</p>
       <p className="mt-1">{message}</p>
       {(onRetry || children) && <div className="mt-3 flex flex-wrap gap-2">{onRetry && <button className="btn-secondary" onClick={onRetry}>Retry</button>}{children}</div>}
     </div>
@@ -76,7 +77,7 @@ export function ErrorBox({ title = "Something needs attention", message, onRetry
 export function Skeleton({ lines = 3, label = "Loading" }: { lines?: number; label?: string }) {
   return (
     <div aria-busy="true" aria-label={label} className="space-y-3">
-      {Array.from({ length: lines }).map((_, i) => <div key={i} className="h-5 rounded-detail bg-border/60" style={{ width: `${90 - i * 12}%` }} />)}
+      {Array.from({ length: lines }).map((_, i) => <div key={i} className="h-5 animate-pulse rounded-detail bg-border" style={{ width: `${90 - i * 12}%` }} />)}
     </div>
   );
 }
@@ -123,9 +124,9 @@ export function Dialog({ open, title, onClose, children, describedBy }:
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(15,23,42,0.45)] p-0 sm:items-center sm:p-4">
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="dlg-title" aria-describedby={describedBy}
-        className="fade-in w-full max-w-modal rounded-t-card bg-surface p-6 sm:rounded-card">
+        className="fade-in w-full max-w-modal rounded-t-card border-2 border-ink bg-surface p-6 shadow-hard-lg sm:rounded-card">
         <h2 id="dlg-title" className="text-section">{title}</h2>
         <div className="mt-3">{children}</div>
       </div>
@@ -162,24 +163,19 @@ export function MathText({ text, className = "" }: { text: string; className?: s
 export function Companion({ message, hidden }: { message: string; hidden?: boolean }) {
   if (hidden) return null;
   return (
-    <aside aria-label="Companion note" className="flex items-start gap-3 text-ink-muted">
-      <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true" className="shrink-0">
-        <polygon points="20,3 26,20 20,37 14,20" fill="var(--action)" stroke="var(--ink)" strokeWidth="1.5" />
-        <polygon points="20,3 26,20 20,20" fill="var(--discovery)" />
-        <polygon points="3,20 20,14 37,20 20,26" fill="none" stroke="var(--ink)" strokeWidth="1.5" />
-        <circle cx="20" cy="20" r="2.5" fill="var(--ink)" />
-      </svg>
-      <p className="text-meta pt-2">{message}</p>
+    <aside aria-label="Companion note" className="flex items-start gap-3 rounded-card border-2 border-dashed border-ink-muted p-3 text-ink">
+      <Mark size={40} className="shrink-0" />
+      <p className="pt-2">{message}</p>
     </aside>
   );
 }
 
 export function ScopeNotice({ id, title, milestone, children }: { id: string; title: string; milestone: string; children?: ReactNode }) {
   return (
-    <section className="card max-w-prose" data-screen={id}>
-      <p className="text-meta text-ink-muted">{id}</p>
-      <h1 className="text-page-compact mt-1">{title}</h1>
-      <p className="mt-3">Not built in this version. Planned for <strong>{milestone}</strong>.</p>
+    <section className="card max-w-prose" data-screen={id} data-milestone={milestone}>
+      <p className="badge">Coming soon</p>
+      <h1 className="text-page-compact mt-3">{title}</h1>
+      <p className="mt-3">Coming soon. This part of ThinkFirst is not built yet.</p>
       {children}
     </section>
   );

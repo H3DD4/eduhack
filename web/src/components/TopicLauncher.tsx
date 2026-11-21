@@ -37,7 +37,7 @@ export function TopicLauncher({ dark = false, autoFocus = false }: { dark?: bool
           {busy ? "Building…" : "Start learning"}
         </button>
       </form>
-      {err && <p role="alert" className={dark ? "text-[#FFD7CF]" : "text-review"}>{err}</p>}
+      {err && <p role="alert" className="text-review">{err}</p>}
       {data && (
         <>
           <ul className="flex flex-wrap gap-2" aria-label="Suggested topics">
