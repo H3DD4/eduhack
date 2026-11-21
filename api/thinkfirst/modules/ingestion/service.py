@@ -1,0 +1,447 @@
+"""ingestion service: uploads -> extraction jobs -> proposed scope -> student confirmation (C01/C02, UC03-UC06, UC32-UC33)."""
+
+from __future__ import annotations
+
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session
+
+from thinkfirst.config import get_settings
+from thinkfirst.core import events, jobs
+from thinkfirst.core.db import utcnow
+from thinkfirst.core.deps import get_owned
+from thinkfirst.core.errors import Conflict, NotFound, ValidationFailed
+from thinkfirst.core.storage import get_storage, sha256
+from thinkfirst.modules.ingestion import extract
+from thinkfirst.modules.ingestion.models import (
+    Concept,
+    ConceptGraphRevision,
+    Source,
+    SourceChunk,
+    SourceItem,
+    SourcePage,
+    SourceRevision,
+)
+from thinkfirst.modules.llm_gateway import service as llm
+from thinkfirst.modules.workspaces import service as workspaces
+
+ROLES = {"course", "notes", "past_exam"}
+ACTIVE_STATUSES = {"queued", "extracting", "extracted", "awaiting_confirmation", "ready"}
+HEURISTIC_LABEL = "Heuristic extraction from your document's numbered headings (no AI used). Check every item."
+AI_LABEL_TMPL = "AI-proposed scope ({provider}). Check every item; uncertain items are marked."
+GENERATED_LABEL = "AI-generated starter scope (Demo data). Not extracted from your course."
+
+
+def limits() -> dict:
+    s = get_settings()
+    return {"max_file_bytes": s.max_file_bytes, "max_files_per_batch": s.max_files_per_batch,
+            "max_pages_per_file": s.max_pages_per_file,
+            "accepted": ["PDF (text)", "PPTX", "TXT", "MD", "Pasted text"],
+            "not_yet": ["Scanned PDFs and photos (OCR arrives in a later milestone)"]}
+
+
+# ---------------- uploads ----------------
+
+def add_source(db: Session, owner_id: str, subject_id: str, filename: str, mime: str, data: bytes,
+               role: str, rights_ack: bool) -> Source:
+    workspaces.get_subject(db, owner_id, subject_id)
+    if role not in ROLES:
+        raise ValidationFailed("Choose Course, Notes or Past exam.", field="role")
+    if not rights_ack:
+        raise ValidationFailed("Confirm you may use these materials for your own study.", field="rights_ack")
+    s = get_settings()
+    src = Source(owner_id=owner_id, subject_id=subject_id, filename=filename[:300] or "untitled", role=role,
+                 mime=mime or "application/octet-stream", size_bytes=len(data), rights_ack=True)
+    db.add(src)
+    db.flush()
+    kind = extract.detect_kind(filename, mime)
+    if kind is None:
+        src.status, src.error_code = "needs_attention", "UNSUPPORTED_TYPE"
+        return src
+    if len(data) > s.max_file_bytes:
+        src.status, src.error_code = "needs_attention", "TOO_LARGE"
+        return src
+    if not data:
+        src.status, src.error_code = "needs_attention", "EMPTY_FILE"
+        return src
+    _new_revision(db, src, data, kind)
+    return src
+
+
+def _new_revision(db: Session, src: Source, data: bytes, kind: str) -> SourceRevision:
+    no = (db.scalar(select(func.max(SourceRevision.revision_no)).where(SourceRevision.source_id == src.id)) or 0) + 1
+    rev = SourceRevision(owner_id=src.owner_id, source_id=src.id, revision_no=no, checksum=sha256(data),
+                         generation=src.generation)
+    db.add(rev)
+    db.flush()
+    rev.storage_key = f"private/{src.owner_id}/sources/{src.id}/{rev.id}"
+    get_storage().put(rev.storage_key, data, src.mime)
+    src.status, src.error_code = "queued", None
+    jobs.enqueue(db, "ingestion.extract", src.owner_id, {"revision_id": rev.id, "kind": kind},
+                 idempotency_key=f"extract:{rev.id}:{src.generation}")
+    return rev
+
+
+@jobs.job_handler("ingestion.extract")
+def _extract_job(db: Session, job: jobs.Job) -> dict:
+    rev = db.get(SourceRevision, job.payload["revision_id"])
+    if rev is None:
+        raise jobs.JobError("REVISION_MISSING")
+    src = db.get(Source, rev.source_id)
+    assert src is not None
+    if src.generation != rev.generation or src.status in ("cancelled", "excluded") or src.removed_at:
+        return {"stale": True}  # late callback for a cancelled/replaced generation: rejected
+    src.status = "extracting"
+    try:
+        pages = extract.extract_pages(get_storage().get(rev.storage_key or ""), job.payload["kind"],
+                                      get_settings().max_pages_per_file)
+    except extract.ExtractionError as exc:
+        src.status, src.error_code = "needs_attention", exc.code
+        return {"source_id": src.id, "status": src.status, "error_code": exc.code}
+    rev.page_count = len(pages)
+    for i, text in enumerate(pages, start=1):
+        db.add(SourcePage(owner_id=src.owner_id, revision_id=rev.id, page_no=i, text=text))
+    for ch in extract.chunk_pages(pages):
+        db.add(SourceChunk(owner_id=src.owner_id, revision_id=rev.id, subject_id=src.subject_id, page_no=ch.page_no,
+                           span_start=ch.start, span_end=ch.end, text=ch.text, embedding=extract.demo_embed(ch.text)))
+    src.current_revision_id = rev.id
+    src.status = "extracted"
+    db.flush()
+    propose_scope(db, src.owner_id, src.subject_id)
+    return {"source_id": src.id, "status": src.status, "pages": len(pages)}
+
+
+def _sources(db: Session, owner_id: str, subject_id: str) -> list[Source]:
+    return list(db.scalars(select(Source).where(Source.owner_id == owner_id, Source.subject_id == subject_id)
+                           .order_by(Source.created_at)).all())
+
+
+def propose_scope(db: Session, owner_id: str, subject_id: str) -> ConceptGraphRevision | None:
+    """Build a proposed graph revision once no usable source is still processing."""
+    srcs = [s for s in _sources(db, owner_id, subject_id) if not s.removed_at]
+    if any(s.status in ("queued", "extracting") for s in srcs):
+        return None
+    usable = [s for s in srcs if s.status in ("extracted", "awaiting_confirmation", "ready") and s.current_revision_id]
+    subject = workspaces.get_subject(db, owner_id, subject_id)
+    if not usable:
+        if subject.status != "ready":
+            subject.status = "needs_attention"
+        return None
+    concepts, items, citations_src = [], [], {}
+    for s in usable:
+        pages = db.scalars(select(SourcePage).where(SourcePage.revision_id == s.current_revision_id)
+                           .order_by(SourcePage.page_no)).all()
+        cs, its = extract.heuristic_scope([p.text for p in pages])
+        for c in cs:
+            citations_src[c.key] = (s, c)
+        concepts.extend(cs)
+        items.extend((s, it) for it in its)
+    basis, label = "extracted-heuristic", HEURISTIC_LABEL
+    if not concepts:
+        provider = llm.active_provider()
+        if provider == "demo":
+            for s in usable:
+                s.status, s.error_code = "needs_attention", "NO_STRUCTURE_FOUND"
+            subject.status = "needs_attention"
+            return None
+        concepts = _ai_scope(db, owner_id, usable, citations_src)
+        basis, label = "extracted-ai", AI_LABEL_TMPL.format(provider=provider)
+        if not concepts:
+            for s in usable:
+                s.status, s.error_code = "needs_attention", "NO_STRUCTURE_FOUND"
+            subject.status = "needs_attention"
+            return None
+    # supersede older proposals
+    for old in db.scalars(select(ConceptGraphRevision).where(ConceptGraphRevision.subject_id == subject_id,
+                                                             ConceptGraphRevision.owner_id == owner_id,
+                                                             ConceptGraphRevision.status == "proposed")).all():
+        old.status = "superseded"
+    no = (db.scalar(select(func.max(ConceptGraphRevision.revision_no))
+                    .where(ConceptGraphRevision.subject_id == subject_id)) or 0) + 1
+    rev = ConceptGraphRevision(owner_id=owner_id, subject_id=subject_id, revision_no=no, status="proposed",
+                               basis=basis, extraction_label=label)
+    db.add(rev)
+    db.flush()
+    seen: set[str] = set()
+    for pos, c in enumerate(concepts):
+        if c.key in seen:
+            continue
+        seen.add(c.key)
+        s, _ = citations_src.get(c.key, (usable[0], c))
+        db.add(Concept(owner_id=owner_id, graph_revision_id=rev.id, subject_id=subject_id, key=c.key, title=c.title,
+                       objective=c.objective, unit_no=c.unit_no, unit_title=c.unit_title, position=pos,
+                       prerequisites=c.prerequisites, is_foundation=c.is_foundation, uncertain=c.uncertain,
+                       citations=[{"source_id": s.id, "revision_id": s.current_revision_id, "page": c.page,
+                                   "span": [c.span_start, c.span_end], "quote": c.quote,
+                                   "filename": s.filename}]))
+    db.execute(delete(SourceItem).where(SourceItem.subject_id == subject_id, SourceItem.owner_id == owner_id))
+    for s, it in items:
+        db.add(SourceItem(owner_id=owner_id, revision_id=s.current_revision_id, subject_id=subject_id,
+                          concept_key=it.concept_key, kind=it.kind, prompt=it.prompt, expression=it.expression,
+                          page_no=it.page))
+    for s in usable:
+        if s.status == "extracted":
+            s.status = "awaiting_confirmation"
+    if subject.status != "ready":
+        subject.status = "awaiting_confirmation"
+    db.flush()
+    return rev
+
+
+def _ai_scope(db: Session, owner_id: str, usable: list[Source], citations_src: dict) -> list:
+    s = usable[0]
+    pages = db.scalars(select(SourcePage).where(SourcePage.revision_id == s.current_revision_id)
+                       .order_by(SourcePage.page_no)).all()
+    res = llm.run(db, "propose_concepts", {"course_pages": [{"page": p.page_no, "text": p.text[:4000]} for p in pages[:40]]},
+                  owner_id=owner_id, purpose="scope_proposal")
+    if res.status != "ok" or not res.output:
+        return []
+    out = []
+    page_text = {p.page_no: p.text for p in pages}
+    for unit in res.output.get("units", []):
+        for c in unit.get("concepts", []):
+            page = int(c.get("page") or 1)
+            text = page_text.get(page, "")
+            idx = text.lower().find(str(c.get("title", "")).lower()[:20])
+            quote = text[idx: idx + 200] if idx >= 0 else ""  # verbatim or nothing — never invented
+            pc = extract.ProposedConcept(key=str(c["key"])[:32], title=str(c["title"])[:300], unit_no=int(unit.get("no", 1)),
+                                         unit_title=str(unit.get("title", "")), page=page, span_start=max(idx, 0),
+                                         span_end=max(idx, 0) + len(quote), objective=str(c.get("objective", "")),
+                                         prerequisites=[str(p) for p in c.get("prerequisites", [])],
+                                         is_foundation=bool(c.get("is_foundation")), uncertain=True, quote=quote)
+            citations_src[pc.key] = (s, pc)
+            out.append(pc)
+    return out
+
+
+def confirm_scope(db: Session, owner_id: str, subject_id: str, graph_revision_id: str, edits: list[dict]) -> ConceptGraphRevision:
+    rev = get_owned(db, ConceptGraphRevision, graph_revision_id, owner_id)
+    if rev.subject_id != subject_id:
+        raise NotFound()
+    if rev.status != "proposed":
+        raise Conflict("This scope proposal is no longer current. Review the latest one.", code="STALE_REVISION")
+    by_id = {c.id: c for c in db.scalars(select(Concept).where(Concept.graph_revision_id == rev.id)).all()}
+    for e in edits:
+        c = by_id.get(e.get("concept_id", ""))
+        if c is None:
+            continue
+        if "title" in e and str(e["title"]).strip():
+            c.title = str(e["title"]).strip()[:300]
+        if "excluded" in e:
+            c.excluded = bool(e["excluded"])
+    if all(c.excluded for c in by_id.values()):
+        raise ValidationFailed("Keep at least one concept in scope.")
+    for old in db.scalars(select(ConceptGraphRevision).where(ConceptGraphRevision.subject_id == subject_id,
+                                                             ConceptGraphRevision.status == "confirmed")).all():
+        old.status = "superseded"  # historical attempts keep their frozen concept/rubric copies
+    rev.status, rev.confirmed_at = "confirmed", utcnow()
+    for s in _sources(db, owner_id, subject_id):
+        if s.status == "awaiting_confirmation":
+            s.status = "ready"
+    workspaces.set_status(db, owner_id, subject_id, "ready", rev.id)
+    events.publish(db, events.Event(events.SOURCE_CONFIRMED, owner_id, {"subject_id": subject_id, "graph_revision_id": rev.id}))
+    return rev
+
+
+# ---------------- recovery (UC04) ----------------
+
+def _source(db: Session, owner_id: str, source_id: str) -> Source:
+    return get_owned(db, Source, source_id, owner_id)
+
+
+def retry_source(db: Session, owner_id: str, source_id: str) -> Source:
+    src = _source(db, owner_id, source_id)
+    if src.status != "needs_attention":
+        return src
+    rev = _latest_revision(db, src)
+    if rev is None:
+        return src
+    job = db.scalar(select(jobs.Job).where(jobs.Job.idempotency_key == f"extract:{rev.id}:{src.generation}"))
+    if job is not None:
+        src.status = "queued"
+        job.status = jobs.FAILED  # allow retry of the same job ID
+        jobs.retry(db, job)
+    return src
+
+
+def _latest_revision(db: Session, src: Source) -> SourceRevision | None:
+    return db.scalar(select(SourceRevision).where(SourceRevision.source_id == src.id)
+                     .order_by(SourceRevision.revision_no.desc()))
+
+
+def replace_source(db: Session, owner_id: str, source_id: str, filename: str, mime: str, data: bytes) -> Source:
+    src = _source(db, owner_id, source_id)
+    kind = extract.detect_kind(filename, mime)
+    src.generation += 1  # in-flight jobs for the previous file become stale
+    src.filename, src.mime, src.size_bytes = filename[:300], mime, len(data)
+    if kind is None or len(data) > get_settings().max_file_bytes or not data:
+        src.status = "needs_attention"
+        src.error_code = "UNSUPPORTED_TYPE" if kind is None else ("TOO_LARGE" if data else "EMPTY_FILE")
+        return src
+    _new_revision(db, src, data, kind)
+    return src
+
+
+def cancel_source(db: Session, owner_id: str, source_id: str) -> Source:
+    src = _source(db, owner_id, source_id)
+    if src.status in ("queued", "extracting"):
+        src.generation += 1
+        src.status = "cancelled"
+        for job in db.scalars(select(jobs.Job).where(jobs.Job.owner_id == owner_id, jobs.Job.type == "ingestion.extract")).all():
+            if job.status not in jobs.TERMINAL:
+                jobs.cancel(db, job)
+        propose_scope(db, owner_id, src.subject_id)
+    return src
+
+
+def exclude_source(db: Session, owner_id: str, source_id: str) -> Source:
+    src = _source(db, owner_id, source_id)
+    if src.status != "ready":
+        src.status = "excluded"
+        propose_scope(db, owner_id, src.subject_id)
+    return src
+
+
+def removal_impact(db: Session, owner_id: str, source_id: str) -> dict:
+    src = _source(db, owner_id, source_id)
+    cited = db.scalars(select(Concept).where(Concept.subject_id == src.subject_id, Concept.owner_id == owner_id)).all()
+    n = sum(1 for c in cited if any(ci.get("source_id") == src.id for ci in c.citations))
+    return {"source_id": src.id, "filename": src.filename, "cited_concepts": n,
+            "evidence_effect": "Existing evidence receipts are kept; their citations to this file become tombstones."}
+
+
+def remove_source(db: Session, owner_id: str, source_id: str) -> Source:
+    """W04 removal: delete content, keep a tombstone. Evidence is not rewritten (UC32)."""
+    src = _source(db, owner_id, source_id)
+    if src.removed_at:
+        return src
+    for rev in db.scalars(select(SourceRevision).where(SourceRevision.source_id == src.id)).all():
+        if rev.storage_key:
+            get_storage().delete(rev.storage_key)
+            rev.storage_key = None
+        db.execute(delete(SourcePage).where(SourcePage.revision_id == rev.id))
+        db.execute(delete(SourceChunk).where(SourceChunk.revision_id == rev.id))
+    src.removed_at = utcnow()
+    src.generation += 1
+    return src
+
+
+# ---------------- reads ----------------
+
+def active_concepts(db: Session, owner_id: str, subject_id: str) -> list[Concept]:
+    subject = workspaces.get_subject(db, owner_id, subject_id)
+    if not subject.active_graph_revision_id:
+        return []
+    return list(db.scalars(select(Concept).where(Concept.graph_revision_id == subject.active_graph_revision_id,
+                                                 Concept.owner_id == owner_id, Concept.excluded.is_(False))
+                           .order_by(Concept.unit_no, Concept.position)).all())
+
+
+def get_concept(db: Session, owner_id: str, concept_id: str) -> Concept:
+    return get_owned(db, Concept, concept_id, owner_id)
+
+
+def proposed_revision(db: Session, owner_id: str, subject_id: str) -> ConceptGraphRevision | None:
+    return db.scalar(select(ConceptGraphRevision).where(ConceptGraphRevision.subject_id == subject_id,
+                                                        ConceptGraphRevision.owner_id == owner_id,
+                                                        ConceptGraphRevision.status == "proposed")
+                     .order_by(ConceptGraphRevision.revision_no.desc()))
+
+
+def concepts_of(db: Session, revision_id: str) -> list[Concept]:
+    return list(db.scalars(select(Concept).where(Concept.graph_revision_id == revision_id)
+                           .order_by(Concept.unit_no, Concept.position)).all())
+
+
+def items_for(db: Session, owner_id: str, subject_id: str, concept_key: str) -> list[SourceItem]:
+    return list(db.scalars(select(SourceItem).where(SourceItem.owner_id == owner_id, SourceItem.subject_id == subject_id,
+                                                    SourceItem.concept_key == concept_key)).all())
+
+
+def all_items(db: Session, owner_id: str, subject_id: str) -> list[SourceItem]:
+    return list(db.scalars(select(SourceItem).where(SourceItem.owner_id == owner_id,
+                                                    SourceItem.subject_id == subject_id)).all())
+
+
+def page_text(db: Session, owner_id: str, source_id: str, page_no: int) -> dict:
+    src = _source(db, owner_id, source_id)
+    if src.removed_at or not src.current_revision_id:
+        return {"tombstone": True, "source_id": src.id, "filename": src.filename,
+                "removed_at": src.removed_at.isoformat() if src.removed_at else None}
+    rev = db.get(SourceRevision, src.current_revision_id)
+    page = db.scalar(select(SourcePage).where(SourcePage.revision_id == src.current_revision_id,
+                                              SourcePage.page_no == page_no))
+    if page is None:
+        raise NotFound("This page is not available.")
+    return {"tombstone": False, "source_id": src.id, "filename": src.filename, "revision_no": rev.revision_no if rev else None,
+            "page": page_no, "page_count": rev.page_count if rev else None, "text": page.text}
+
+
+def concept_excerpt(db: Session, owner_id: str, concept: Concept) -> dict | None:
+    """Cited chunk for Learn: verbatim text of the concept's cited span."""
+    if not concept.citations:
+        return None
+    ci = concept.citations[0]
+    src = db.get(Source, ci["source_id"])
+    if src is None or src.removed_at:
+        return {"tombstone": True, **ci}
+    page = db.scalar(select(SourcePage).where(SourcePage.revision_id == ci["revision_id"], SourcePage.page_no == ci["page"]))
+    if page is None:
+        return {"tombstone": True, **ci}
+    s, e = ci.get("span", [0, len(page.text)])
+    return {"tombstone": False, **ci, "text": page.text[s:e].strip() or page.text[:800]}
+
+
+def retrieve(db: Session, owner_id: str, subject_id: str, query: str, k: int = 3) -> list[tuple[float, SourceChunk]]:
+    qv = extract.demo_embed(query)
+    chunks = db.scalars(select(SourceChunk).where(SourceChunk.owner_id == owner_id, SourceChunk.subject_id == subject_id)).all()
+    scored = sorted(((extract.cosine(qv, c.embedding or []), c) for c in chunks), key=lambda t: -t[0])
+    return scored[:k]
+
+
+def sources_public(db: Session, owner_id: str, subject_id: str) -> list[dict]:
+    out = []
+    for s in _sources(db, owner_id, subject_id):
+        rev = db.get(SourceRevision, s.current_revision_id) if s.current_revision_id else None
+        out.append({"id": s.id, "filename": s.filename, "role": s.role, "mime": s.mime, "size_bytes": s.size_bytes,
+                    "status": "removed" if s.removed_at else s.status, "error_code": s.error_code,
+                    "content_category": s.content_category, "revision_no": rev.revision_no if rev else None,
+                    "page_count": rev.page_count if rev else None,
+                    "removed_at": s.removed_at.isoformat() if s.removed_at else None})
+    return out
+
+
+def concept_public(c: Concept) -> dict:
+    return {"id": c.id, "key": c.key, "title": c.title, "objective": c.objective, "unit_no": c.unit_no,
+            "unit_title": c.unit_title, "position": c.position, "prerequisites": c.prerequisites,
+            "citations": c.citations, "is_foundation": c.is_foundation, "uncertain": c.uncertain, "excluded": c.excluded}
+
+
+# ---------------- UC05 guided topic ----------------
+
+GUIDED_TOPICS = {
+    "algebra": {
+        "title": "Algebra foundations",
+        "concepts": [
+            ("F1", "Order of operations", "Evaluate expressions using the order of operations.", [], True),
+            ("1.1", "Variables and terms", "Identify terms, coefficients and constants.", [], False),
+            ("1.2", "The distributive property", "Expand a product a(b + c) into ab + ac.", ["1.1", "F1"], False),
+            ("1.3", "Combining like terms", "Simplify expressions by combining like terms.", ["1.2"], False),
+        ],
+    }
+}
+
+
+def create_guided_scope(db: Session, owner_id: str, subject_id: str, discipline: str) -> ConceptGraphRevision:
+    topic = GUIDED_TOPICS.get(discipline)
+    if topic is None:
+        raise ValidationFailed("Only 'algebra' is available as a guided topic in this build.", field="discipline")
+    rev = ConceptGraphRevision(owner_id=owner_id, subject_id=subject_id, revision_no=1, status="proposed",
+                               basis="generated", extraction_label=GENERATED_LABEL)
+    db.add(rev)
+    db.flush()
+    for pos, (key, title, objective, prereq, foundation) in enumerate(topic["concepts"]):
+        db.add(Concept(owner_id=owner_id, graph_revision_id=rev.id, subject_id=subject_id, key=key, title=title,
+                       objective=objective, unit_no=1, unit_title=topic["title"], position=pos, prerequisites=prereq,
+                       is_foundation=foundation, uncertain=True, citations=[]))
+    workspaces.set_status(db, owner_id, subject_id, "awaiting_confirmation")
+    return rev
