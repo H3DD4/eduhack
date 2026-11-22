@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppShell, useMe } from "@/components/AppShell";
+import { isAccessibilityActive } from "@/lib/accessibility/profile";
 import { SpeakButton } from "@/components/avatar/AvatarSpeakerContext";
 import { ExplainFlow } from "@/components/session/ExplainFlow";
 import { FocusSheet } from "@/components/session/FocusSheet";
@@ -21,7 +22,7 @@ const STAGE_LABEL: Record<string, string> = {
 function Workspace() {
   const { s, l } = useParams<{ s: string; l: string }>();
   const router = useRouter();
-  const { me, caps } = useMe();
+  const { me, caps, accessibilityProfile } = useMe();
   const [view, setView] = useState<any>(null);
   const [loadErr, setLoadErr] = useState<ApiError | null>(null);
   const [lease, setLease] = useState<string | null>(null);
@@ -299,7 +300,8 @@ function Workspace() {
         )}
       </main>
       <FocusSheet open={focus} onClose={() => setFocus(false)} onPause={saveAndPause} quiet={quiet} setQuiet={setQuiet}
-        timerMinutes={sess.config?.timer_minutes ?? null} saving={pausing} />
+        timerMinutes={isAccessibilityActive(accessibilityProfile) && accessibilityProfile?.hide_timer
+          ? null : sess.config?.timer_minutes ?? null} saving={pausing} />
       <Dialog open={leaveOpen} title="Leave without syncing?" onClose={() => setLeaveOpen(false)}>
         <p>This draft is not synced. It stays on this device only.</p>
         <div className="mt-6 flex flex-wrap gap-3">

@@ -3,13 +3,23 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
+import { AccessibilityProfile, AccessibilityResponse, isAccessibilityActive } from "@/lib/accessibility/profile";
+import { READING_THEMES } from "@/lib/accessibility/themes";
 import { AvatarSpeakerProvider } from "./avatar/AvatarSpeakerContext";
 import { CommandPalette } from "./CommandPalette";
 import { Logo } from "./Logo";
 
 type Me = { id: string; email: string; display_name: string; is_demo: boolean; setup_complete: boolean; preferences: any };
-type Caps = { simulated: boolean; label: string; stt_simulated: boolean; audio_processor: string | null; text_processors: string[]; demo_mode: boolean };
-const Ctx = createContext<{ me: Me | null; caps: Caps | null; refreshMe: () => Promise<void> }>({ me: null, caps: null, refreshMe: async () => {} });
+type Caps = { simulated: boolean; label: string; stt_simulated: boolean; audio_processor: string | null; text_processors: string[]; demo_mode: boolean; accessibility_module: boolean };
+const Ctx = createContext<{
+  me: Me | null;
+  caps: Caps | null;
+  refreshMe: () => Promise<void>;
+  accessibilityProfile: AccessibilityProfile | null;
+  accessibilityError: string | null;
+  refreshAccessibility: () => Promise<void>;
+}>({ me: null, caps: null, refreshMe: async () => {}, accessibilityProfile: null, accessibilityError: null,
+  refreshAccessibility: async () => {} });
 export const useMe = () => useContext(Ctx);
 
 function Icon({ name }: { name: "today" | "subjects" | "planner" | "progress" | "teachers" }) {
@@ -54,6 +64,8 @@ export function AppShell({ children, crumbs = [], focused = false, requireSetup 
   const path = usePathname();
   const [me, setMe] = useState<Me | null>(null);
   const [caps, setCaps] = useState<Caps | null>(null);
+  const [accessibilityProfile, setAccessibilityProfile] = useState<AccessibilityProfile | null>(null);
+  const [accessibilityError, setAccessibilityError] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
   const [bell, setBell] = useState(false);
   const [palette, setPalette] = useState(false);
@@ -70,15 +82,81 @@ export function AppShell({ children, crumbs = [], focused = false, requireSetup 
       if ((e as ApiError).status === 401) router.replace(`/welcome?return=${encodeURIComponent(path)}`);
     }
   };
+  const refreshAccessibility = async () => {
+    try {
+      const result = await api<AccessibilityResponse>("/me/accessibility");
+      setAccessibilityProfile(result.profile);
+      setAccessibilityError(null);
+    } catch (e) {
+      setAccessibilityError((e as ApiError).message);
+      throw e;
+    }
+  };
   useEffect(() => {
     refreshMe();
-    api<Caps>("/capabilities").then(setCaps).catch(() => {});
+    api<Caps>("/capabilities").then(async (value) => {
+      setCaps(value);
+      if (value.accessibility_module) {
+        try { await refreshAccessibility(); } catch { /* Settings exposes the failure. */ }
+      }
+    }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     const m = me?.preferences?.reduced_motion;
     document.documentElement.dataset.motion = m === "reduce" ? "reduce" : "";
   }, [me]);
+  useEffect(() => {
+    const root = document.documentElement;
+    const active = isAccessibilityActive(accessibilityProfile);
+    const properties = [
+      "--reading-font", "--reading-font-size", "--reading-line-height", "--reading-letter-spacing",
+      "--reading-word-spacing", "--reading-line-width", "--canvas", "--surface", "--ink", "--ink-muted",
+      "--border", "--control-stroke", "--action", "--action-hover", "--action-base", "--soft-fg", "--help",
+      "--help-surface", "--success", "--success-surface", "--review-surface", "--focus", "--tf-hl", "--tf-strong",
+      "--tf-ink", "--tf-slate", "--tf-paper", "--tf-soft", "--tf-soft-fg", "--discovery", "--needs-review",
+      "--shadow", "--edge",
+    ];
+    properties.forEach((name) => root.style.removeProperty(name));
+    root.dataset.readingAids = active ? "active" : "";
+    root.dataset.readingFocus = active && accessibilityProfile ? accessibilityProfile.focus_mode || "off" : "off";
+    root.dataset.readingTheme = active && accessibilityProfile ? accessibilityProfile.theme || "default" : "default";
+    root.style.colorScheme = active && accessibilityProfile?.theme === "dark" ? "dark" : "light";
+    if (!active || !accessibilityProfile) return;
+
+    const font = {
+      Arial: 'Arial, "Noto Sans Arabic", sans-serif',
+      Verdana: 'Verdana, "Noto Sans Arabic", sans-serif',
+      Lexend: 'Lexend, "Noto Sans Arabic", sans-serif',
+      "Atkinson Hyperlegible": '"Atkinson Hyperlegible", "Noto Sans Arabic", sans-serif',
+      OpenDyslexic: '"OpenDyslexic", "Noto Sans Arabic", sans-serif',
+    }[accessibilityProfile.font || "Arial"];
+    if (font) root.style.setProperty("--reading-font", font);
+    if (accessibilityProfile.font_size) root.style.setProperty("--reading-font-size", `${accessibilityProfile.font_size}px`);
+    if (accessibilityProfile.line_spacing) root.style.setProperty("--reading-line-height", `${accessibilityProfile.line_spacing}`);
+    if (accessibilityProfile.letter_spacing !== null) root.style.setProperty("--reading-letter-spacing", `${accessibilityProfile.letter_spacing}em`);
+    if (accessibilityProfile.word_spacing !== null) root.style.setProperty("--reading-word-spacing", `${accessibilityProfile.word_spacing}em`);
+    if (accessibilityProfile.line_width) root.style.setProperty("--reading-line-width", `${accessibilityProfile.line_width}ch`);
+
+    Object.entries(READING_THEMES[accessibilityProfile.theme || ""] || {})
+      .forEach(([name, value]) => root.style.setProperty(name, value));
+  }, [accessibilityProfile]);
+  useEffect(() => {
+    if (!isAccessibilityActive(accessibilityProfile) || !accessibilityProfile || accessibilityProfile.focus_mode !== "ruler") return;
+    const root = document.documentElement;
+    const updatePointer = (event: PointerEvent) => root.style.setProperty("--reading-ruler-y", `${event.clientY}px`);
+    const updateFocus = (event: FocusEvent) => {
+      const rect = (event.target as HTMLElement)?.getBoundingClientRect?.();
+      if (rect) root.style.setProperty("--reading-ruler-y", `${rect.top + rect.height / 2}px`);
+    };
+    window.addEventListener("pointermove", updatePointer);
+    document.addEventListener("focusin", updateFocus);
+    return () => {
+      window.removeEventListener("pointermove", updatePointer);
+      document.removeEventListener("focusin", updateFocus);
+      root.style.removeProperty("--reading-ruler-y");
+    };
+  }, [accessibilityProfile]);
   useEffect(() => {
     if (focused) return;
     const onKey = (e: KeyboardEvent) => {
@@ -105,8 +183,8 @@ export function AppShell({ children, crumbs = [], focused = false, requireSetup 
   const initial = (me.display_name || me.email || "?").trim().charAt(0).toUpperCase();
 
   return (
-    <Ctx.Provider value={{ me, caps, refreshMe }}>
-      <AvatarSpeakerProvider>
+    <Ctx.Provider value={{ me, caps, refreshMe, accessibilityProfile, accessibilityError, refreshAccessibility }}>
+      <AvatarSpeakerProvider profile={accessibilityProfile}>
       <a href="#main" className="skip-link btn-secondary">Skip to content</a>
       {!focused && (
         <header className={`sticky top-0 z-30 px-3 pt-3 transition-[padding] duration-200 md:px-6 ${scrolled ? "md:pt-2" : "md:pt-5"}`}>

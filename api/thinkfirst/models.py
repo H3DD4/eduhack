@@ -5,6 +5,7 @@ from thinkfirst.data.memory import models as _memory  # noqa: F401
 from thinkfirst.data.memory import service as _memory_service  # noqa: F401  (event subscribers)
 from thinkfirst.data.student_profile import models as _lm  # noqa: F401
 from thinkfirst.data.student_profile import service as _lm_service  # noqa: F401  (event subscribers)
+from thinkfirst.modules.accessibility import models as _accessibility  # noqa: F401
 from thinkfirst.modules.adaptation import models as _adaptation  # noqa: F401
 from thinkfirst.modules.adaptation import service as _adaptation_service  # noqa: F401  (event subscribers)
 from thinkfirst.modules.diagnostic import placement as _placement  # noqa: F401  (job handler + subscriber)

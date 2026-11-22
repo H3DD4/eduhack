@@ -4,14 +4,205 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { AppShell, useMe } from "@/components/AppShell";
-import { DemoLabel, ErrorBox } from "@/components/ui";
+import { DemoLabel, Dialog, ErrorBox } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
+import { AccessibilityProfile, isAccessibilityActive } from "@/lib/accessibility/profile";
 
 const SECTIONS = [
   { k: "account", t: "Account" }, { k: "privacy", t: "Privacy & data" }, { k: "language", t: "Language" },
   { k: "notifications", t: "Notifications" }, { k: "plan", t: "Plan" },
 ];
+
+function ReadingAids() {
+  const { caps, accessibilityProfile, accessibilityError, refreshAccessibility } = useMe();
+  const [consentOpen, setConsentOpen] = useState(false);
+  const [consentAccepted, setConsentAccepted] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const profile = accessibilityProfile;
+  const active = isAccessibilityActive(profile);
+  const subjects = useApi<any>("/subjects");
+
+  if (!caps?.accessibility_module) return <p className="card">Reading aids are not available in this environment.</p>;
+
+  const save = async (changes: Partial<AccessibilityProfile>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api("/me/accessibility", { method: "PATCH", json: { changes } });
+      await refreshAccessibility();
+      setMessage("Reading-aid settings saved.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const agree = async () => {
+    if (!consentAccepted) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api("/me/accessibility/consent", { method: "POST", json: { accepted: true } });
+      await refreshAccessibility();
+      setConsentOpen(false);
+      setConsentAccepted(false);
+      setMessage("Reading aids enabled. You can adjust or turn them off at any time.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const exportProfile = async () => {
+    setError(null);
+    try {
+      const data = await api("/me/accessibility/export");
+      const blob = new Blob([JSON.stringify(data.profile, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "thinkfirst-reading-aids.json";
+      link.click();
+      URL.revokeObjectURL(url);
+      setMessage("Your reading-aid profile was exported.");
+    } catch (e) { setError((e as Error).message); }
+  };
+  const removeProfile = async () => {
+    if (!window.confirm("Delete your saved reading-aid profile? This cannot be undone.")) return;
+    setError(null);
+    try {
+      await api("/me/accessibility", { method: "DELETE" });
+      await refreshAccessibility();
+      setMessage("Your reading-aid profile was deleted.");
+    } catch (e) { setError((e as Error).message); }
+  };
+  const select = (label: string, key: keyof AccessibilityProfile, options: [string, string][]) => (
+    <label className="flex flex-wrap items-center justify-between gap-2">
+      <span>{label}</span>
+      <select className="field !w-auto" disabled={!active || busy}
+        value={profile?.[key] == null ? "" : options.find(([value]) =>
+          value === String(profile[key]) || typeof profile[key] === "number" && Number(value) === profile[key])?.[0] || ""}
+        onChange={(e) => {
+          const value = e.target.value;
+          const numeric = ["font_size", "line_spacing", "letter_spacing", "word_spacing", "line_width",
+            "tts_speed", "extra_time_factor"].includes(key);
+          save({ [key]: value === "" ? null : numeric ? Number(value) : value } as Partial<AccessibilityProfile>);
+        }}>
+        <option value="">Use app default</option>
+        {options.map(([value, name]) => <option key={value} value={value}>{name}</option>)}
+      </select>
+    </label>
+  );
+  const toggle = (label: string, key: keyof AccessibilityProfile) => (
+    <label className="flex min-h-[44px] items-center gap-2">
+      <input type="checkbox" disabled={!active || busy} checked={Boolean(profile?.[key])}
+        onChange={(e) => save({ [key]: e.target.checked } as Partial<AccessibilityProfile>)} />
+      {label}
+    </label>
+  );
+  const previewFont = profile?.font || "Acme";
+  const previewStyle = {
+    fontFamily: `"${previewFont}", "Noto Sans Arabic", sans-serif`,
+    fontSize: `${profile?.font_size || 17}px`,
+    lineHeight: profile?.line_spacing || 1.65,
+    letterSpacing: `${profile?.letter_spacing || 0}em`,
+    wordSpacing: `${profile?.word_spacing || 0}em`,
+    maxWidth: `${profile?.line_width || 70}ch`,
+  };
+
+  return (
+    <div className="space-y-5">
+      {(error || accessibilityError) && <ErrorBox message={error || accessibilityError || ""} />}
+      <p className="sr-only" role="status" aria-live="polite">{message}</p>
+      {!profile?.consent_given_at ? (
+        <section className="card space-y-3">
+          <p>Optional reading aids can change text presentation and provide read-aloud or dictation controls. They do not diagnose you or change the learning goals.</p>
+          <button type="button" className="btn-primary" onClick={() => setConsentOpen(true)}>Review privacy and enable</button>
+        </section>
+      ) : (
+        <>
+          <section className="card space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div><h2 className="text-section">Reading aids</h2><p className="text-meta text-ink-muted">Adjust any aid individually. Your profile is private to your account.</p></div>
+              <button type="button" role="switch" aria-checked={active} disabled={busy}
+                className="btn-secondary" onClick={() => save({ enabled: !active })}>
+                {active ? "On — turn off" : "Off — turn on"}
+              </button>
+            </div>
+            <fieldset disabled={!active} className="space-y-3">
+              <legend className="font-semibold">Text presentation</legend>
+              {select("Font", "font", [["Arial", "Arial"], ["Verdana", "Verdana"], ["Lexend", "Lexend"],
+                ["Atkinson Hyperlegible", "Atkinson Hyperlegible"], ["OpenDyslexic", "OpenDyslexic"]])}
+              {select("Text size", "font_size", [14, 16, 18, 20].map((n) => [String(n), `${n} px`]))}
+              {select("Line spacing", "line_spacing", [["1.5", "1.5"], ["1.75", "1.75"], ["2", "2"]])}
+              {select("Letter spacing", "letter_spacing", [["0", "Default"], ["0.03", "Slight"], ["0.06", "More"]])}
+              {select("Word spacing", "word_spacing", [["0", "Default"], ["0.08", "Slight"], ["0.16", "More"]])}
+              {select("Line width", "line_width", [["50", "50 characters"], ["60", "60 characters"], ["70", "70 characters"]])}
+              {select("Theme", "theme", [["cream", "Cream"], ["pastel", "Pastel"], ["dark", "Dark"], ["high-contrast", "High contrast"]])}
+              {select("Focus aid", "focus_mode", [["off", "Off"], ["ruler", "Line ruler"], ["dim", "Dim around pointer"]])}
+              <div className="rounded-detail border-2 border-border bg-surface p-4" aria-label="Live reading preview">
+                <p className="text-meta font-semibold">Preview</p>
+                <p className="mt-2 text-left" style={previewStyle}>A clear layout can make a long explanation easier to follow. The ideas and level stay the same.</p>
+              </div>
+            </fieldset>
+          </section>
+          <section className="card space-y-3">
+            <h2 className="text-section">Speech and input</h2>
+            {toggle("Read-aloud controls", "tts_enabled")}
+            {select("Speech language", "speech_language", [["en-GB", "English"], ["fr-FR", "French"], ["ar-SA", "Arabic"]])}
+            {select("Speech speed", "tts_speed", [["0.75", "0.75×"], ["0.9", "0.9×"], ["1", "1×"], ["1.2", "1.2×"], ["1.5", "1.5×"]])}
+            {toggle("Enable browser dictation in answer fields", "stt_enabled")}
+            <p className="text-meta text-ink-muted">Browser dictation may be processed by your browser provider. The transcript stays editable before you submit it. Read-aloud voices depend on your device; unavailable voices are reported.</p>
+            {toggle("Optional spelling suggestions", "spelling_suggestions")}
+            <p className="text-meta text-ink-muted">Word prediction and Arabic diacritic display are not available in this English-only interface.</p>
+            <fieldset disabled={!active || busy} className="space-y-2">
+              <legend className="font-semibold">Language-learning subjects</legend>
+              <p className="text-meta text-ink-muted">Mark subjects where spelling is part of the learning goal. This helps keep spelling separate from subject understanding.</p>
+              {subjects.data?.subjects?.map((subject: any) => (
+                <label key={subject.id} className="flex min-h-[44px] items-center gap-2">
+                  <input type="checkbox" checked={(profile?.language_subject_ids || []).includes(subject.id)}
+                    onChange={(e) => {
+                      const selected = new Set(profile?.language_subject_ids || []);
+                      if (e.target.checked) selected.add(subject.id);
+                      else selected.delete(subject.id);
+                      save({ language_subject_ids: Array.from(selected) });
+                    }} />
+                  {subject.name}
+                </label>
+              ))}
+              {subjects.data?.subjects?.length === 0 && <p className="text-meta text-ink-muted">No subjects are available to classify yet.</p>}
+            </fieldset>
+          </section>
+          <section className="card space-y-3">
+            <h2 className="text-section">Exercise preferences</h2>
+            {select("Extra time preference", "extra_time_factor", [["1", "No extra time"], ["1.25", "1.25×"], ["1.5", "1.5×"], ["2", "2×"]])}
+            {toggle("Hide the timer", "hide_timer")}
+            <p className="text-meta text-ink-muted">This version has no exam mode. These preferences are saved but do not change the current informational session timer.</p>
+          </section>
+          <section className="card flex flex-wrap gap-3">
+            <button type="button" className="btn-secondary" onClick={exportProfile}>Export profile</button>
+            <button type="button" className="btn-secondary" onClick={removeProfile}>Delete profile</button>
+          </section>
+        </>
+      )}
+      <Dialog open={consentOpen} title="Privacy for reading aids" onClose={() => setConsentOpen(false)}>
+        <div className="space-y-4">
+          <p>Your selected reading settings are stored in a private profile associated with your account. They are not shown to teachers or used for ranking. You can export or delete the profile at any time.</p>
+          <p>Dictation uses your browser’s speech-recognition feature when enabled; the browser may process microphone audio. You can keep dictation off and type instead.</p>
+          <label className="flex items-start gap-2"><input type="checkbox" checked={consentAccepted} onChange={(e) => setConsentAccepted(e.target.checked)} />
+            <span>I agree to store my reading-aid settings in my private profile.</span></label>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" className="btn-primary" disabled={!consentAccepted || busy} onClick={agree}>Agree and enable</button>
+            <button type="button" className="btn-secondary" onClick={() => setConsentOpen(false)}>Not now</button>
+          </div>
+        </div>
+      </Dialog>
+    </div>
+  );
+}
 
 function Privacy() {
   const { me, caps, refreshMe } = useMe();
@@ -153,19 +344,21 @@ function DemoQuota() {
 function Settings() {
   const params = useSearchParams();
   const section = params.get("section") || "account";
-  const { me } = useMe();
+  const { me, caps } = useMe();
+  const sections = caps?.accessibility_module ? [...SECTIONS, { k: "reading-aids", t: "Reading aids" }] : SECTIONS;
   return (
     <div className="grid gap-6 lg:grid-cols-[220px_1fr]" data-screen="A03">
       <nav aria-label="Settings sections">
-        <ul className="space-y-1">{SECTIONS.map((x) => (
+        <ul className="space-y-1">{sections.map((x) => (
           <li key={x.k}><Link href={`/settings?section=${x.k}`} aria-current={section === x.k ? "page" : undefined}
             className={`flex min-h-[44px] items-center rounded-control px-3 font-semibold ${section === x.k ? "bg-success-surface text-action-base" : ""}`}>{x.t}</Link></li>
         ))}</ul>
       </nav>
       <div className="max-w-prose">
-        <h1 className="mb-4 text-page-compact">{SECTIONS.find((x) => x.k === section)?.t || "Settings"}</h1>
+        <h1 className="mb-4 text-page-compact">{sections.find((x) => x.k === section)?.t || "Settings"}</h1>
         {section === "account" && <div className="card"><p>Signed in as <strong>{me?.email}</strong>.</p><p className="mt-2 text-meta text-ink-muted">Password changes arrive later.</p></div>}
         {section === "privacy" && <Privacy />}
+        {section === "reading-aids" && <ReadingAids />}
         {section === "language" && <div className="card"><p>English. French and Arabic (with right-to-left layout) are coming soon.</p></div>}
         {section === "notifications" && <div className="card"><p>Not connected. Opt-in reminders are coming soon; ThinkFirst never asks for browser notification permission unprompted.</p></div>}
         {section === "plan" && <div className="card"><p>Free plan (mock entitlement provider). No payments exist in this build.</p></div>}
