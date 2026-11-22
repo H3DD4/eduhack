@@ -32,9 +32,9 @@ In parallel the voltage is shared and the inverse resistances add up.
 
 def _items(v: dict) -> dict:
     out = []
-    for i, c in enumerate(v["concepts"]):
+    for c in v["concepts"]:
         for d in ("easy", "medium", "hard"):
-            sabotaged = i == 0 and d == "hard"  # wrong key: the independent cross-check must reject it
+            sabotaged = c["key"] == "3.1" and d == "hard"  # wrong key: the independent cross-check must reject it
             out.append({"concept_key": c["key"], "difficulty": d, "question": f"{c['title']}: {d} question?",
                         "correct": f"BAD {c['key']} {d}" if sabotaged else f"RIGHT {c['key']} {d}",
                         "distractors": [{"text": (f"RIGHT {c['key']} {d}" if sabotaged and n == 0 else f"wrong{n} {c['key']} {d}"),
