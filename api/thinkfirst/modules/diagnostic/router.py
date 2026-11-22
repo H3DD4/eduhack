@@ -90,3 +90,10 @@ def level(subject_id: str, user: User = Depends(current_user), db: Session = Dep
 
     workspaces.get_subject(db, user.id, subject_id)
     return {"report": placement.report(db, user.id, subject_id), "placement": placement.status(db, user.id, subject_id)}
+
+
+@router.post("/subjects/{subject_id}/placement/prepare")
+def prepare_placement(subject_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from thinkfirst.modules.diagnostic import placement
+
+    return {"placement": placement.prepare(db, user.id, subject_id)}

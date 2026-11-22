@@ -16,11 +16,24 @@ const GOALS: Choice[] = [
   { v: "self_study", t: "Learn a topic on my own" },
   { v: "unsure", t: "Not sure yet" },
 ];
-const LEVELS: Choice[] = [
-  { v: "high_school", t: "High school / Bac" },
-  { v: "university", t: "University or engineering" },
-  { v: "professional", t: "Self-learner or certification" },
+const STATUS: Choice[] = [
+  { v: "school", t: "School student", d: "Middle school, high school, Bac" },
+  { v: "university", t: "University student", d: "Degree, engineering, masters" },
+  { v: "working", t: "Working", d: "Learning for my job or a certificate" },
+  { v: "self_learner", t: "Learning on my own" },
 ];
+const LEVEL_OF: Record<string, string> = { school: "high_school", university: "university", working: "professional", self_learner: "professional" };
+const FIELDS: Record<string, string[]> = {
+  school: ["Sciences", "Mathematics", "Computer science", "Economics and management", "Literature and languages"],
+  university: ["Computer science", "Engineering", "Medicine and health", "Business and management", "Law", "Mathematics", "Sciences", "Design and arts", "Humanities"],
+  working: ["Software and IT", "Cybersecurity", "Data and AI", "Engineering", "Finance and accounting", "Marketing", "Health", "Education", "Design"],
+  self_learner: ["Programming", "Data and AI", "Languages", "Business", "Sciences", "Design", "History"],
+};
+const YEARS: Record<string, string[]> = {
+  school: ["Middle school", "1st year high school", "2nd year high school", "Final year / Bac"],
+  university: ["1st year", "2nd year", "3rd year", "4th year", "5th year", "Doctorate"],
+};
+const INTERESTS = ["Programming", "Artificial intelligence", "Cybersecurity", "Mathematics", "Physics", "Biology", "Economics", "Languages", "History", "Design", "Psychology"];
 const CONFIDENCE: Choice[] = [
   { v: "1", t: "Lost" }, { v: "2", t: "A bit rusty" }, { v: "3", t: "Okay" }, { v: "4", t: "Confident" }, { v: "5", t: "Very confident" },
 ];
@@ -35,8 +48,8 @@ const INPUTS: Choice[] = [
   { v: "voice", t: "Speaking", d: "You choose when the microphone is on." },
 ];
 
-const STEPS = ["goal", "level", "confidence", "slot", "input", "privacy", "deal"] as const;
-const SECONDS_LEFT = [150, 125, 100, 80, 60, 40, 15];
+const STEPS = ["about", "status", "field", "interests", "goal", "confidence", "slot", "input", "privacy", "deal"] as const;
+const SECONDS_LEFT = [170, 150, 135, 110, 95, 80, 65, 50, 35, 15];
 
 function Options({ name, options, value, onPick }: { name: string; options: Choice[]; value: string; onPick: (v: string) => void }) {
   return (
@@ -59,8 +72,14 @@ export default function Onboarding() {
   const { speakWithAvatar, voiceGuideEnabled } = useAvatarSpeaker();
   const [step, setStep] = useState(0);
   const [goal, setGoal] = useState("unsure");
-  const [level, setLevel] = useState("university");
-  const [birthYear, setBirthYear] = useState<string>("");
+  const [name, setName] = useState("");
+  const [age, setAge] = useState("");
+  const [status, setStatus] = useState("");
+  const [field, setField] = useState("");
+  const [detail, setDetail] = useState(""); // year of study or job title
+  const [interests, setInterests] = useState<string[]>([]);
+  const [otherInterest, setOtherInterest] = useState("");
+  const [hours, setHours] = useState("5");
   const [dealAccepted, setDealAccepted] = useState(true);
   const [behaviorTier, setBehaviorTier] = useState(false);
   const [priorConfidence, setPriorConfidence] = useState<number>(3);
@@ -72,15 +91,41 @@ export default function Onboarding() {
   const key = STEPS[step];
   const last = step === STEPS.length - 1;
 
+  // Coming back from Settings: start from what was answered before.
+  useEffect(() => {
+    api("/me/consent").then((r: any) => {
+      const c = r.consent ?? r, o = c.onboarding ?? {};
+      if (o.status) setStatus(o.status);
+      if (o.field) setField(o.field);
+      if (o.study_year || o.job_title) setDetail(o.study_year || o.job_title);
+      if (o.comfort?.interests?.length) setInterests(o.comfort.interests);
+      if (o.rhythm?.hours_per_week) setHours(String(o.rhythm.hours_per_week));
+      if (o.goal) setGoal(o.goal);
+      if (o.prior_confidence) setPriorConfidence(o.prior_confidence);
+      if (c.birth_year) setAge(String(new Date().getFullYear() - c.birth_year));
+    }).catch(() => undefined);
+    api("/auth/me").then((r: any) => { const n = (r.user ?? r).display_name; if (n) setName(n); }).catch(() => undefined);
+  }, []);
+
+  const ageNum = age.trim() ? Number(age.trim()) : null;
+  const ageOk = ageNum === null || (Number.isInteger(ageNum) && ageNum >= 5 && ageNum <= 100);
+  const missing = key === "about" ? (!name.trim() ? "Tell us what to call you." : ageNum === null ? "Enter your age." : !ageOk ? "Enter an age between 5 and 100." : null)
+    : key === "status" ? (!status ? "Choose what describes you." : null)
+    : key === "field" ? (!field.trim() ? "Choose or type your speciality." : null) : null;
+
   const save = async () => {
     setBusy(true);
     setError(null);
-    const parsedYear = birthYear.trim() ? Number(birthYear.trim()) : null;
+    const parsedYear = ageNum !== null && ageOk ? new Date().getFullYear() - ageNum : null;
+    const student = status === "school" || status === "university";
     try {
       await api("/me/onboarding", {
         method: "PATCH",
         json: {
-          goal, level, input_preference: input,
+          goal, level: LEVEL_OF[status] ?? "university", input_preference: input,
+          display_name: name.trim() || null, status: status || null, field: field.trim() || null,
+          study_year: student ? detail.trim() : "", job_title: status === "working" ? detail.trim() : "",
+          interests, hours_per_week: Number(hours) > 0 && Number(hours) <= 80 ? Number(hours) : null,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           birth_year: parsedYear, deal_accepted: dealAccepted, prior_confidence: priorConfidence,
           first_session_slot: firstSessionSlot,
@@ -93,18 +138,28 @@ export default function Onboarding() {
       setBusy(false);
     }
   };
-  const next = () => (last ? save() : setStep((s) => Math.min(STEPS.length - 1, s + 1)));
+  const next = () => {
+    if (missing) { setError(missing); return; }
+    setError(null);
+    if (last) save();
+    else setStep((s) => Math.min(STEPS.length - 1, s + 1));
+  };
+  const toggleInterest = (x: string) => setInterests((l) => (l.includes(x) ? l.filter((y) => y !== x) : [...l, x].slice(0, 12)));
+  const addOther = () => { const x = otherInterest.trim(); if (x) { setInterests((l) => (l.includes(x) ? l : [...l, x].slice(0, 12))); setOtherInterest(""); } };
   const back = () => setStep((s) => Math.max(0, s - 1));
 
   useEffect(() => {
     if (!voiceGuideEnabled) return;
     const prompts: Record<(typeof STEPS)[number], string> = {
+      about: "First, tell us what to call you and how old you are. Your name and age stay in ThinkFirst. Say next when ready.",
+      status: "What describes you? Choose school student, university student, working, or learning on my own. Say choose and the option, then next.",
+      field: "Choose or type your speciality or working field, and optionally your year of study or job title. Say next when ready.",
+      interests: "What do you like learning? Pick any topics you want and how many hours you can study per week. Say next when ready.",
       goal: "What brings you here? Choose understand my course, prepare for an exam, learn on my own, or not sure. Say choose and the option, then next.",
-      level: "Where are you studying? Choose high school, university, or professional self-study. Say choose and the option, then next.",
       confidence: "How confident do you feel? Choose a confidence level from lost to very confident, then say next.",
       slot: "When is your first session? Choose one of the suggested times, or type another time. Say next when ready.",
       input: "How do you like to answer? Choose typing or speaking, then say next.",
-      privacy: "Review optional learning behavior tracking and birth year. Essential data is always on. Say next when ready.",
+      privacy: "Review optional learning behavior tracking. Essential data is always on. Say next when ready.",
       deal: "This is the learning agreement. Say choose I'm in to accept, then say save and start to continue.",
     };
     speakWithAvatar(`Question ${step + 1} of ${STEPS.length}. ${prompts[key]} Press Ask by voice when you are ready; the microphone is not always listening.`, {
@@ -116,7 +171,7 @@ export default function Onboarding() {
   // Number keys pick an option on choice screens; Enter moves on.
   useEffect(() => {
     const map: Record<string, { opts: Choice[]; set: (v: string) => void }> = {
-      goal: { opts: GOALS, set: setGoal }, level: { opts: LEVELS, set: setLevel },
+      goal: { opts: GOALS, set: setGoal }, status: { opts: STATUS, set: (v) => { setStatus(v); setError(null); } },
       confidence: { opts: CONFIDENCE, set: (v) => setPriorConfidence(Number(v)) },
       slot: { opts: SLOTS, set: setFirstSessionSlot }, input: { opts: INPUTS, set: setInput },
     };
@@ -153,10 +208,57 @@ export default function Onboarding() {
             <p className="mt-2 text-ink-muted">This sets how long your first check is.</p>
             <Options name="Goal" options={GOALS} value={goal} onPick={setGoal} />
           </>)}
-          {key === "level" && (<>
-            <h1 className="mt-2 text-page-compact">Where are you <span className="hl">studying</span>?</h1>
-            <p className="mt-2 text-ink-muted">So the first question is the right level.</p>
-            <Options name="Level" options={LEVELS} value={level} onPick={setLevel} />
+          {key === "about" && (<>
+            <h1 className="mt-2 text-page-compact">First, <span className="hl">you</span></h1>
+            <p className="mt-2 text-ink-muted">Your name and age stay in ThinkFirst. They are never sent to the AI.</p>
+            <label className="label mt-6" htmlFor="onb-name">What should we call you?</label>
+            <input id="onb-name" className="field" autoComplete="given-name" maxLength={120} value={name} onChange={(e) => { setName(e.target.value); setError(null); }} />
+            <label className="label mt-5" htmlFor="onb-age">How old are you?</label>
+            <input id="onb-age" type="number" inputMode="numeric" min={5} max={100} className="field max-w-[10rem]" value={age} onChange={(e) => { setAge(e.target.value); setError(null); }} />
+            {ageNum !== null && ageOk && ageNum < 18 && <p className="mt-2 text-meta text-ink-muted">Under 18: we ask a guardian before saving more than your account.</p>}
+          </>)}
+          {key === "status" && (<>
+            <h1 className="mt-2 text-page-compact">What <span className="hl">describes you</span>?</h1>
+            <p className="mt-2 text-ink-muted">So lessons and the first question are the right level.</p>
+            <Options name="Situation" options={STATUS} value={status} onPick={(v) => { if (v !== status) { setField(""); setDetail(""); } setStatus(v); setError(null); }} />
+          </>)}
+          {key === "field" && (<>
+            <h1 className="mt-2 text-page-compact">{status === "working" ? <>Your <span className="hl">working field</span>?</> : <>Your <span className="hl">speciality</span>?</>}</h1>
+            <p className="mt-2 text-ink-muted">We suggest topics for it and take examples from it.</p>
+            <ul className="mt-6 flex flex-wrap gap-2" aria-label="Common fields">
+              {(FIELDS[status] ?? FIELDS.university).map((f) => (
+                <li key={f}><button type="button" className="chip" aria-pressed={field === f} onClick={() => { setField(f); setError(null); }}>{f}</button></li>
+              ))}
+            </ul>
+            <label className="label mt-5" htmlFor="onb-field">Or type it</label>
+            <input id="onb-field" className="field" maxLength={120} value={field} placeholder="e.g. Cybersecurity, Nursing, Civil engineering" onChange={(e) => { setField(e.target.value); setError(null); }} />
+            {YEARS[status] && (<>
+              <label className="label mt-5" htmlFor="onb-year">{status === "school" ? "Grade" : "Year of study"} (optional)</label>
+              <select id="onb-year" className="field" value={detail} onChange={(e) => setDetail(e.target.value)}>
+                <option value="">Choose</option>{YEARS[status].map((y) => <option key={y}>{y}</option>)}
+              </select>
+            </>)}
+            {status === "working" && (<>
+              <label className="label mt-5" htmlFor="onb-job">Job title (optional)</label>
+              <input id="onb-job" className="field" maxLength={120} value={detail} onChange={(e) => setDetail(e.target.value)} />
+            </>)}
+          </>)}
+          {key === "interests" && (<>
+            <h1 className="mt-2 text-page-compact">What do you <span className="hl">like</span> learning?</h1>
+            <p className="mt-2 text-ink-muted">Pick as many as you want. Optional.</p>
+            <ul className="mt-6 flex flex-wrap gap-2" aria-label="Interests">
+              {[...INTERESTS, ...interests.filter((x) => !INTERESTS.includes(x))].map((x) => (
+                <li key={x}><button type="button" className="chip" aria-pressed={interests.includes(x)} onClick={() => toggleInterest(x)}>{x}</button></li>
+              ))}
+            </ul>
+            <label className="label mt-5" htmlFor="onb-other">Something else</label>
+            <div className="flex gap-2">
+              <input id="onb-other" className="field" maxLength={60} value={otherInterest} onChange={(e) => setOtherInterest(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addOther(); } }} />
+              <button type="button" className="btn-secondary" onClick={addOther}>Add</button>
+            </div>
+            <label className="label mt-5" htmlFor="onb-hours">Hours you can study per week</label>
+            <input id="onb-hours" type="number" inputMode="numeric" min={1} max={80} className="field max-w-[10rem]" value={hours} onChange={(e) => setHours(e.target.value)} />
           </>)}
           {key === "confidence" && (<>
             <h1 className="mt-2 text-page-compact">How <span className="hl">sure</span> do you feel about your subject?</h1>
@@ -189,11 +291,6 @@ export default function Onboarding() {
                 </span>
                 <span className="text-meta text-ink-muted">Pauses, edits and rhythm, so pacing adapts to you. Optional.</span>
               </button>
-              <div>
-                <label className="label" htmlFor="onb-birth-year">Birth year (optional)</label>
-                <input id="onb-birth-year" type="number" inputMode="numeric" placeholder="e.g. 2007" className="field" value={birthYear} onChange={(e) => setBirthYear(e.target.value)} />
-                <p className="mt-1 text-meta text-ink-muted">Under 18? We ask a guardian before saving more than your account.</p>
-              </div>
             </div>
           </>)}
           {key === "deal" && (<>
@@ -208,7 +305,7 @@ export default function Onboarding() {
             </label>
           </>)}
 
-          {error && <p role="alert" className="mt-4 text-review">{error} <button type="button" className="btn-link" onClick={save}>Retry</button></p>}
+          {error && <p role="alert" className="mt-4 text-review">{error} {!missing && <button type="button" className="btn-link" onClick={save}>Retry</button>}</p>}
 
           <div className="mt-auto space-y-3 pt-8">
             <button type="submit" className="btn-primary w-full" disabled={busy} aria-busy={busy}>

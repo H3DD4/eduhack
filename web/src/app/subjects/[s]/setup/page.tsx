@@ -10,7 +10,7 @@ import { api } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 
 const PHASE: Record<string, string> = {
-  queued: "Queued", extracting: "Extracting text", extracted: "Extracted", awaiting_confirmation: "Awaiting your confirmation",
+  queued: "Reading your file…", extracting: "Reading your file…", extracted: "Extracted", awaiting_confirmation: "Awaiting your confirmation",
   needs_attention: "Needs attention", cancelled: "Cancelled", ready: "Ready", excluded: "Excluded", removed: "Removed",
 };
 const CAUSE: Record<string, string> = {
@@ -19,7 +19,7 @@ const CAUSE: Record<string, string> = {
   ENCRYPTED_FILE: "This PDF is password-protected. Export an unprotected copy.",
   NO_TEXT: "No text found — it may be scanned. OCR arrives later; paste the text or use a guided topic.",
   UNREADABLE_FILE: "The file could not be read. Replace it or paste its text.",
-  TOO_MANY_PAGES: "This file has more pages than the limit.",
+  TOO_MANY_PAGES: "This file has more than 1,500 pages. Split it, or paste the chapters you need.",
   NO_STRUCTURE_FOUND: "No numbered headings were found to build a roadmap. Without an AI service, the heuristic needs headings like “1.2 Topic”.",
   EMPTY_FILE: "The file is empty.",
 };
@@ -167,7 +167,7 @@ export default function Setup() {
 
             <section aria-labelledby="scope-h">
               <h2 id="scope-h" className="text-section">Proposed scope</h2>
-              {processing && <p className="mt-2" aria-busy="true">Extracting text from your files… (no percentages are shown because extraction progress is not measurable)</p>}
+              {processing && <p className="mt-2" aria-busy="true">Reading your files and building the roadmap… A whole book can take 1–2 minutes.</p>}
               {!processing && !data.proposal && <p className="mt-2 text-ink-muted">No usable scope yet. Fix or replace a file, paste text, or choose a guided topic.</p>}
               {data.proposal && (
                 <>

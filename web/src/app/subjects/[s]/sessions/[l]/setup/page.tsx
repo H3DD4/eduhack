@@ -45,7 +45,7 @@ export default function SessionSetup() {
 
   const q = data?.quota;
   return (
-    <SubjectShell subjectId={s} crumb="Session setup">
+    <SubjectShell subjectId={s} crumb="Session setup" parent="roadmap">
       <div className="max-w-prose space-y-6" data-screen="S01">
         {!data && !error && <Skeleton />}
         {error && <ErrorBox message="This session could not load." onRetry={reload} />}

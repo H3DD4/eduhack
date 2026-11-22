@@ -11,6 +11,7 @@ os.environ.update({
     "LLM_PROVIDER": "demo", "STT_PROVIDER": "demo", "JOB_MODE": "inline", "STORAGE_BACKEND": "local",
     "GEMINI_API_KEY": "", "GROQ_API_KEY": "", "ANTHROPIC_API_KEY": "", "OLLAMA_API_KEY": "",
     "DEMO_MODE": "true", "RESOURCE_DISCOVERY": "false",
+    "EMBEDDING_PROVIDER": "demo",  # deterministic + offline: never load the local model in unit tests
 })
 
 import pytest  # noqa: E402

@@ -198,7 +198,7 @@ def test_rights_ack_required_and_limits_visible(student):
     r = student.post("/api/subjects", data={"name": "X", "rights_ack": "false", "paste_text": "1.1 Topic\nObjective: y"})
     assert r.status_code == 422
     lim = student.get("/api/limits").json()
-    assert lim["max_files_per_batch"] == 5 and lim["max_pages_per_file"] == 200
+    assert lim["max_files_per_batch"] == 5 and lim["max_pages_per_file"] == 1500
 
 
 def test_source_removal_creates_tombstone(student):

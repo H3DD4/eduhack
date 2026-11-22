@@ -14,6 +14,15 @@ import { LearnStage, PracticeStage, RecallStage, TransferStage } from "@/compone
 import { Dialog, ErrorBox, SaveBadge, SaveState, Skeleton } from "@/components/ui";
 import { api, ApiError, deviceId } from "@/lib/api";
 
+const STAGE_HELP: Record<string, string> = {
+  recall: "Say what you already remember. “I don't know” is fine.",
+  learn: "Read the short lesson and the worked example from your course.",
+  practice: "Solve on your own first. Help comes one step at a time if you ask.",
+  explanation: "Explain it in your own words — speak (voice) or type. ThinkFirst checks what you understood.",
+  followup: "One question on the part your explanation missed.",
+  transfer: "A new problem, without help: this shows you can really use it.",
+  summary: "What you showed today and when to review.",
+};
 const STAGE_LABEL: Record<string, string> = {
   recall: "Recall", learn: "Learn", practice: "Practice", explanation: "Explain it back", followup: "One follow-up",
   transfer: "New application", summary: "Summary",
@@ -167,7 +176,7 @@ function Workspace() {
     if (timer.current) clearTimeout(timer.current);
     const ok = readOnly || (await pushCheckpoint(drafts));
     if (!ok) { setLeaveOpen(true); return; }
-    router.push("/today");
+    router.push(`/subjects/${s}/roadmap`);
   };
   const resume = async () => {
     try {
@@ -197,10 +206,11 @@ function Workspace() {
     <div className="min-h-screen" data-screen="S02" data-stage={stage} data-quiet={quiet ? "1" : "0"}>
       <header className="sticky top-0 z-30 border-b-2 border-ink bg-surface">
         <div className="mx-auto flex max-w-overview items-center justify-between gap-3 px-4 py-2 md:px-6">
-          <button className="btn-secondary" onClick={saveAndExit}>Save and exit</button>
+          <button className="btn-secondary" onClick={saveAndExit} aria-label="Save and go back to the roadmap">← Save &amp; back</button>
           <div className="min-w-0 text-center">
             <p className="truncate text-problem">{view.concept.title}</p>
             <p className="text-meta text-ink-muted">Step {pos} of {stages.length}: {STAGE_LABEL[stage]}</p>
+            {STAGE_HELP[stage] && <p className="hidden text-meta text-ink md:block" data-testid="stage-help">{STAGE_HELP[stage]}</p>}
           </div>
           <div className="flex items-center gap-2">
             <span className="hidden sm:inline"><SaveBadge state={readOnly ? "unsaved" : save} at={savedAt} /></span>

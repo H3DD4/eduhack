@@ -35,6 +35,7 @@ services:
 
   api:
     build: { context: ., dockerfile: api/Dockerfile }
+    restart: unless-stopped  # recover automatically (e.g. Redis/Docker hiccup)
     env_file:
       - path: api/.env
         required: false
@@ -53,6 +54,9 @@ services:
       APP_BASE_URL: http://localhost:3000
       DEMO_MODE: "true"
       QDRANT_URL: http://qdrant:6333
+      # local multilingual embedding model (fastembed/ONNX), downloaded once into the shared volume
+      MODEL_CACHE_DIR: /models
+    volumes: [models:/models]
     command: >
       sh -c "python -m alembic upgrade head && python -m thinkfirst.seed &&
              uvicorn thinkfirst.main:app --host 0.0.0.0 --port 8000"
@@ -65,24 +69,28 @@ services:
 
   worker:
     build: { context: ., dockerfile: api/Dockerfile }
+    restart: unless-stopped  # recover automatically (e.g. Redis/Docker hiccup)
     env_file:
       - path: api/.env
         required: false
       - path: .env
         required: false
     environment: *apienv
+    volumes: [models:/models]
     working_dir: /app
     command: python -m arq worker.worker.WorkerSettings
     depends_on: [api]
 
   web:
     build: { context: ./web, args: { API_URL: "http://api:8000" } }
+    restart: unless-stopped  # recover automatically (e.g. Redis/Docker hiccup)
     environment:
       API_URL: http://api:8000
     ports: ["3000:3000"]
     depends_on: [api]
 
 volumes:
+  models:
   pgdata:
   s3data:
   qdrantdata:

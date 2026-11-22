@@ -158,7 +158,7 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
   const counts = data?.counts;
 
   return (
-    <SubjectShell subjectId={subjectId} action={primary} crumb={conceptId ? "Concept" : undefined}>
+    <SubjectShell subjectId={subjectId} action={primary} crumb={conceptId ? "Concept" : "Roadmap"} parent={conceptId ? "roadmap" : undefined}>
       {loading && !data && <div className="card"><Skeleton lines={5} label="Loading roadmap" /></div>}
       {error && <ErrorBox message="The roadmap could not load." onRetry={reload} />}
       {err && <ErrorBox message={err} />}

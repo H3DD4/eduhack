@@ -58,8 +58,10 @@ function useDismiss(open: boolean, close: () => void) {
 }
 
 /** Auth gate + global shell. `focused` hides global navigation (active session, onboarding). */
-export function AppShell({ children, crumbs = [], focused = false, requireSetup = true }:
-  { children: ReactNode; crumbs?: { href?: string; label: string }[]; focused?: boolean; requireSetup?: boolean }) {
+export function AppShell({ children, crumbs = [], focused = false, requireSetup = true, back }:
+  { children: ReactNode; crumbs?: { href?: string; label: string }[]; focused?: boolean; requireSetup?: boolean;
+    /** Where Back goes. Default: the nearest parent in `crumbs`, else Today. `false` = the page has its own Back. */
+    back?: { href: string; label: string } | false }) {
   const router = useRouter();
   const path = usePathname();
   const [me, setMe] = useState<Me | null>(null);
@@ -180,6 +182,9 @@ export function AppShell({ children, crumbs = [], focused = false, requireSetup 
     await api("/auth/logout", { method: "POST" }).catch(() => {});
     router.replace("/welcome");
   };
+  // Back goes to a fixed, named parent (not browser history: history could reopen a session the student just left).
+  const parent = [...crumbs].slice(0, -1).reverse().find((c) => c.href) as { href: string; label: string } | undefined;
+  const backTo = back === false || path === "/today" ? null : back ?? parent ?? { href: "/today", label: "Today" };
   const initial = (me.display_name || me.email || "?").trim().charAt(0).toUpperCase();
 
   return (
@@ -233,17 +238,13 @@ export function AppShell({ children, crumbs = [], focused = false, requireSetup 
               </div>
             </div>
           </nav>
-          {crumbs.length > 1 && (
-            <nav aria-label="Breadcrumb" className="mx-auto mt-3 hidden max-w-overview px-2 text-meta md:block">
-              <ol className="flex items-center gap-2">
-                {crumbs.map((c, i) => (
-                  <li key={i} className="flex items-center gap-2">
-                    {i > 0 && <span aria-hidden className="text-ink-muted">/</span>}
-                    {c.href ? <Link className="btn-link !min-h-0" href={c.href}>{c.label}</Link> : <span aria-current="page">{c.label}</span>}
-                  </li>
-                ))}
-              </ol>
-            </nav>
+          {backTo && (
+            <div className="mx-auto mt-2 flex max-w-overview px-1 print:hidden">
+              <Link href={backTo.href} data-testid="back"
+                className="inline-flex min-h-[42px] max-w-full items-center gap-2 rounded-pill border-2 border-ink bg-surface px-4 text-meta font-bold text-ink shadow-hard transition-transform hover:-translate-y-0.5">
+                <span aria-hidden>←</span><span className="truncate">Back to {backTo.label}</span>
+              </Link>
+            </div>
           )}
         </header>
       )}

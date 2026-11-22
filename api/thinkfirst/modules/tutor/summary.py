@@ -30,6 +30,7 @@ from thinkfirst.modules.tutor.models import CourseSummary, CourseSummarySection
 JOB = "tutor.summary_section"
 SECTION_CHARS = 6000
 SECTION_PAGES = 6
+LONG_PLAN, FIRST_SECTIONS = 24, 4  # a whole book is ~170 sections: writing all at once would exhaust the AI quota
 PAGE_CHARS = 5000
 USABLE = ("extracted", "awaiting_confirmation", "ready")
 EXTRACT_LABEL = "Extract of your own course pages (no AI service configured — not a summary)"
@@ -137,6 +138,8 @@ def ensure(db: Session, owner_id: str, subject_id: str, *, regenerate: bool = Fa
     for no, sec in enumerate(plan, 1):
         row = CourseSummarySection(owner_id=owner_id, summary_id=summary.id, no=no, title=sec["title"][:300],
                                    pages=sec["pages"], concept_keys=sec["concept_keys"], focus=sec["focus"])
+        if len(plan) > LONG_PLAN and no > FIRST_SECTIONS:
+            row.status = "later"  # written when the student asks for it
         db.add(row)
         db.flush()
         first = first or row
@@ -158,7 +161,7 @@ def _sections(db: Session, summary: CourseSummary) -> list[CourseSummarySection]
 
 def _refresh_status(db: Session, summary: CourseSummary) -> None:
     secs = _sections(db, summary)
-    st = [s.status for s in secs]
+    st = [s.status for s in secs if s.status != "later"]
     if any(x == "pending" for x in st):
         summary.status = "building"
     elif all(x == "ready" for x in st):
@@ -314,8 +317,14 @@ def _write_topic_section(db: Session, summary: CourseSummary, sec: CourseSummary
     if concept is None:
         sec.status, sec.error_code = "failed", "CONCEPT_REMOVED"
         return {"status": "failed"}
-    g = rag.hybrid(db, summary.owner_id, summary.subject_id, f"{concept.title} {concept.objective}", fetch_query=concept.title)
+    from thinkfirst.modules.diagnostic.placement import topic_of
+    from thinkfirst.platform.workspaces import service as workspaces
+
+    topic = topic_of(workspaces.get_subject(db, summary.owner_id, summary.subject_id))
+    g = rag.hybrid(db, summary.owner_id, summary.subject_id, f"{topic} {concept.title} {concept.objective}",
+                   fetch_query=f"{topic} {concept.title}")
     res = llm.run(db, "explain_topic_section", {
+        "subject": topic,
         "concept": {"title": concept.title, "objective": concept.objective, "unit": concept.unit_title},
         "course_excerpt": g["text"][:PAGE_CHARS], "learner": learner}, owner_id=summary.owner_id, purpose="topic_summary")
     if res.status != "ok" or not res.output:
@@ -334,7 +343,7 @@ def retry_section(db: Session, owner_id: str, section_id: str) -> CourseSummaryS
     sec = db.get(CourseSummarySection, section_id)
     if sec is None or sec.owner_id != owner_id:
         raise NotFound("Section not found.")
-    if sec.status not in ("failed", "incomplete"):
+    if sec.status not in ("failed", "incomplete", "later"):
         return sec
     job = db.scalar(select(jobs.Job).where(jobs.Job.idempotency_key == f"summary:{sec.id}"))
     sec.status = "pending"
@@ -347,6 +356,35 @@ def retry_section(db: Session, owner_id: str, section_id: str) -> CourseSummaryS
     return sec
 
 
+def write_more(db: Session, owner_id: str, subject_id: str, count: int = 5) -> int:
+    """Long courses: write the next `count` sections, one after another."""
+    summary = _current(db, owner_id, subject_id)
+    nxt = [s for s in _sections(db, summary) if s.status == "later"][:count] if summary else []
+    for s in nxt:
+        s.status = "pending"
+    db.flush()
+    if nxt:
+        jobs.enqueue(db, JOB, owner_id, {"section_id": nxt[0].id, "chain": True}, idempotency_key=f"summary:{nxt[0].id}:more")
+        _refresh_status(db, summary)
+    return len(nxt)
+
+
+def retry_failed(db: Session, owner_id: str, subject_id: str) -> int:
+    """Re-queue every failed / incomplete section of the current summary as ONE sequential chain."""
+    summary = _current(db, owner_id, subject_id)
+    if summary is None:
+        return 0
+    bad = [s for s in _sections(db, summary) if s.status in ("failed", "incomplete")]
+    for s in bad:
+        s.status, s.error_code = "pending", None
+    db.flush()
+    if bad:
+        n = len(db.scalars(select(jobs.Job).where(jobs.Job.idempotency_key.like(f"summary:{bad[0].id}%"))).all())
+        jobs.enqueue(db, JOB, owner_id, {"section_id": bad[0].id, "chain": True}, idempotency_key=f"summary:{bad[0].id}:r{n}")
+    _refresh_status(db, summary)
+    return len(bad)
+
+
 # ------------------------------------------------------------------ read
 
 def public(db: Session, owner_id: str, subject_id: str) -> dict:
@@ -356,11 +394,12 @@ def public(db: Session, owner_id: str, subject_id: str) -> dict:
     secs = _sections(db, summary)
     required = sum(len(s.pages) for s in secs)
     missing = [{"filename": p["filename"], "page": p["page"]} for s in secs for p in s.pages if p["page"] in (s.missing_pages or [])]
-    pending_or_failed = sum(len(s.pages) for s in secs if s.status in ("pending", "failed"))
+    pending_or_failed = sum(len(s.pages) for s in secs if s.status in ("pending", "failed", "later"))
     return {"summary": {
         "id": summary.id, "level": summary.level, "goal": summary.goal, "mode": summary.mode, "status": summary.status,
         "label": summary.label, "created_at": summary.created_at.isoformat(),
-        "progress": {"done": sum(1 for s in secs if s.status != "pending"), "total": len(secs)},
+        "progress": {"done": sum(1 for s in secs if s.status not in ("pending", "later")),
+                     "total": sum(1 for s in secs if s.status != "later"), "later": sum(1 for s in secs if s.status == "later")},
         "coverage": ({"pages_total": required, "pages_covered": required - len(missing) - pending_or_failed,
                       "missing": missing} if summary.mode == "course" else None),
         "sections": [{"id": s.id, "no": s.no, "title": s.title, "status": s.status, "focus": s.focus,

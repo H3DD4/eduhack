@@ -30,7 +30,9 @@ from thinkfirst.platform.workspaces import service as workspaces
 
 JOB = "diagnostic.placement_items"
 MAX_CONCEPTS = 12
-BATCH = 4
+BATCH = 2  # small answers: less truncation and less quota per call
+MAX_ROUNDS = 4  # generation jobs per roadmap
+ENOUGH = 0.6  # share of concepts that need 2+ verified questions before the test is ready
 OPTION_MAX = 200  # answer_key column width; longer options are rejected, never truncated (grading compares text)
 LEVELS = [(85, "expert", "Expert"), (60, "advanced", "Advanced"), (35, "intermediate", "Intermediate"),
           (0, "beginner", "Beginner")]
@@ -44,22 +46,30 @@ DIFF_WEIGHT = {"easy": 1.0, "medium": 1.5, "hard": 2.0}
 SCRATCH_PRIOR = 0.05
 
 
-def _curated() -> dict:
-    from thinkfirst.modules.diagnostic.service import CURATED_BANK
+def _is_curated(concept) -> bool:
+    from thinkfirst.modules.diagnostic.service import is_curated
 
-    return CURATED_BANK
+    return is_curated(concept)
+
+
+def topic_of(subject) -> str:
+    """'Java Programming Learning Roadmap' -> 'Java Programming' (what generators and searches must stay about)."""
+    return re.sub(r"\s*\b(learning\s+)?(roadmap|path)\b\s*", " ", subject.name, flags=re.I).strip() or subject.name
 
 
 def _ai_available() -> bool:
     return llm.active_provider() != "demo"
 
 
-def _job_key(subject) -> str:
-    return f"placement:{subject.id}:{subject.active_graph_revision_id}"
+def _job_key(subject, n: int) -> str:
+    return f"placement:v2:{subject.id}:{subject.active_graph_revision_id}:{n}"
 
 
 def _targets(db: Session, owner_id: str, subject_id: str) -> list:
-    return [c for c in ingestion.active_concepts(db, owner_id, subject_id) if c.key not in _curated()][:MAX_CONCEPTS]
+    cs = [c for c in ingestion.active_concepts(db, owner_id, subject_id) if not _is_curated(c)]
+    if len(cs) <= MAX_CONCEPTS:
+        return cs
+    return [cs[round(i * (len(cs) - 1) / (MAX_CONCEPTS - 1))] for i in range(MAX_CONCEPTS)]  # spread over the whole course
 
 
 def start_generation(db: Session, owner_id: str, subject_id: str) -> jobs.Job | None:
@@ -67,7 +77,30 @@ def start_generation(db: Session, owner_id: str, subject_id: str) -> jobs.Job | 
     subject = workspaces.get_subject(db, owner_id, subject_id)
     if subject.status != "ready" or not _targets(db, owner_id, subject_id) or not _ai_available():
         return None
-    return jobs.enqueue(db, JOB, owner_id, {"subject_id": subject_id}, idempotency_key=_job_key(subject))
+    last = _job(db, subject)
+    if last is not None and (last.status in (jobs.QUEUED, jobs.RUNNING) or covered(db, owner_id, subject_id) >= ENOUGH):
+        return last
+    n = (last.payload.get("n", 1) + 1) if last is not None else 1
+    if n > MAX_ROUNDS:
+        return last
+    return jobs.enqueue(db, JOB, owner_id, {"subject_id": subject_id, "n": n}, idempotency_key=_job_key(subject, n))
+
+
+def _counts(db: Session, owner_id: str, subject_id: str) -> dict[str, int]:
+    """Verified AI questions per concept key."""
+    out: dict[str, int] = {}
+    for r in db.scalars(select(DiagnosticItemRow).where(
+            DiagnosticItemRow.owner_id == owner_id, DiagnosticItemRow.subject_id == subject_id,
+            DiagnosticItemRow.generated.is_(True), DiagnosticItemRow.verified.is_(True))).all():
+        for k in r.skills or []:
+            out[k] = out.get(k, 0) + 1
+    return out
+
+
+def covered(db: Session, owner_id: str, subject_id: str) -> float:
+    targets = _targets(db, owner_id, subject_id)
+    counts = _counts(db, owner_id, subject_id)
+    return sum(counts.get(c.key, 0) >= 2 for c in targets) / len(targets) if targets else 1.0
 
 
 def _slug(text: str) -> str:
@@ -106,14 +139,14 @@ def _other_provider(first: str) -> str | None:
     return next((p for p in llm.provider_chain() if p not in (first, "demo")), None)
 
 
-def _cross_check(db: Session, owner_id: str, items: list[dict], generator: str) -> dict[int, bool]:
+def _cross_check(db: Session, owner_id: str, items: list[dict], generator: str, topic: str) -> dict[int, bool]:
     questions = [{"qid": str(i), "question": it["question"], "options": [{"id": o["id"], "text": o["text"]} for o in it["options"]]}
                  for i, it in enumerate(items)]
     other = _other_provider(generator)
-    res = llm.run(db, "cross_check_items", {"questions": questions}, owner_id=owner_id, purpose="placement_check",
+    res = llm.run(db, "cross_check_items", {"subject": topic, "questions": questions}, owner_id=owner_id, purpose="placement_check",
                   provider=other) if other else None
     if res is None or res.status != "ok":
-        res = llm.run(db, "cross_check_items", {"questions": questions}, owner_id=owner_id, purpose="placement_check")
+        res = llm.run(db, "cross_check_items", {"subject": topic, "questions": questions}, owner_id=owner_id, purpose="placement_check")
     picked = {str(a.get("qid")): str(a.get("option_id", "")).strip().lower() for a in (res.output or {}).get("answers", [])} \
         if res.status == "ok" else {}
     return {i: picked.get(str(i)) == next(o["id"] for o in it["options"] if o["misconception"] is None)
@@ -123,14 +156,15 @@ def _cross_check(db: Session, owner_id: str, items: list[dict], generator: str) 
 def _grounding(db: Session, owner_id: str, subject, batch: list) -> str:
     parts = []
     for c in batch:
-        ex = ingestion.concept_excerpt(db, owner_id, c)
-        if ex and not ex.get("tombstone") and ex.get("text"):
-            parts.append(f"[{c.key} {c.title}] {ex['text'][:1500]}")
+        text = ingestion.concept_text(db, owner_id, c, 3000)
+        if text:
+            parts.append(f"[{c.key} {c.title}] {text}")
     if parts:
         return "\n\n".join(parts)
     from thinkfirst.modules.rag import service as rag
 
-    g = rag.hybrid(db, owner_id, subject.id, " ".join(c.title for c in batch), fetch_query=subject.name)
+    g = rag.hybrid(db, owner_id, subject.id, f"{topic_of(subject)} " + " ".join(c.title for c in batch),
+                   fetch_query=topic_of(subject))
     return g["text"][:4000]
 
 
@@ -138,54 +172,68 @@ def _grounding(db: Session, owner_id: str, subject, batch: list) -> str:
 def _placement_job(db: Session, job: jobs.Job) -> dict:
     owner, sid = job.owner_id, job.payload["subject_id"]
     subject = workspaces.get_subject(db, owner, sid)
-    targets = _targets(db, owner, sid)
+    counts = _counts(db, owner, sid)
+    targets = [c for c in _targets(db, owner, sid) if counts.get(c.key, 0) < 2]  # later rounds only fill the holes
     existing = {r.item_key for r in db.scalars(select(DiagnosticItemRow).where(
         DiagnosticItemRow.owner_id == owner, DiagnosticItemRow.subject_id == sid)).all()}
     made = verified = 0
-    for start in range(0, len(targets), BATCH):
-        batch = targets[start:start + BATCH]
-        by_key = {c.key: c for c in batch}
-        res = llm.run(db, "generate_placement_items", {
-            "concepts": [{"key": c.key, "title": c.title, "objective": c.objective} for c in batch],
-            "course_excerpt": _grounding(db, owner, subject, batch)}, owner_id=owner, purpose="placement_items")
-        if res.status != "ok" or not res.output:
-            continue
-        items = [dict(it, options=_shuffled(it)) for it in _clean(res.output.get("items"), set(by_key))]
-        items = [it for it in items if _key_ok(it)]  # Agentic Tutor verifier: one correct, >= 3 distinct options
-        agree = _cross_check(db, owner, items, res.provider)
-        counter: dict[str, int] = {}
-        for i, it in enumerate(items):
-            c = by_key[it["concept_key"]]
-            counter[c.key] = counter.get(c.key, 0) + 1
-            ikey = f"{c.key}_q{counter[c.key]}"
-            if ikey in existing:
-                continue
-            ok = agree.get(i, False)
-            made += 1
-            verified += ok
-            db.add(DiagnosticItemRow(
-                owner_id=owner, subject_id=sid, item_key=ikey, skills=[c.key], prompt=it["question"], kind="mcq",
-                expression=None, answer_key=it["correct"], options=it["options"],
-                difficulty=DIFFICULTY_PRIORS[it["difficulty"]] + 10.0 * c.position, typical_ms=40_000,
-                diagnostic=True, verified=ok, generated=True, calibrated=False, cross_checked=ok, n_answers=0,
-                language="en", source_page=(c.citations[0].get("page") if c.citations else None) or None,
-                difficulty_label=it["difficulty"]))
-            existing.add(ikey)
+    with llm.urgent(job.id):
+        for start in range(0, len(targets), BATCH):
+            m, v = _write_batch(db, owner, subject, targets[start:start + BATCH], existing)
+            made, verified = made + m, verified + v
     db.flush()
-    if made == 0:
-        raise jobs.JobError("NO_ITEMS_GENERATED")
-    return {"items": made, "verified": verified}
+    share = covered(db, owner, sid)
+    if share < ENOUGH and job.payload.get("n", 1) < MAX_ROUNDS:  # busy AI: continue in a new job instead of a tiny test
+        n = job.payload.get("n", 1) + 1
+        jobs.enqueue(db, JOB, owner, {"subject_id": sid, "n": n}, idempotency_key=_job_key(subject, n))
+    return {"items": made, "verified": verified, "covered": round(share, 2)}
+
+
+def _write_batch(db: Session, owner: str, subject, batch: list, existing: set[str]) -> tuple[int, int]:
+    made = verified = 0
+    by_key = {c.key: c for c in batch}
+    res = llm.run(db, "generate_placement_items", {
+        "subject": topic_of(subject), "concepts": [{"key": c.key, "title": c.title, "objective": c.objective} for c in batch],
+        "course_excerpt": _grounding(db, owner, subject, batch)}, owner_id=owner, purpose="placement_items")
+    if res.status != "ok" or not res.output:
+        return 0, 0
+    items = [dict(it, options=_shuffled(it)) for it in _clean(res.output.get("items"), set(by_key))]
+    items = [it for it in items if _key_ok(it)]  # Agentic Tutor verifier: one correct, >= 3 distinct options
+    agree = _cross_check(db, owner, items, res.provider, topic_of(subject)) if items else {}
+    for i, it in enumerate(items):
+        c = by_key[it["concept_key"]]
+        n = 1
+        while f"{c.key}_v2q{n}" in existing:
+            n += 1
+        ikey = f"{c.key}_v2q{n}"
+        ok = agree.get(i, False)
+        made += 1
+        verified += ok
+        db.add(DiagnosticItemRow(
+            owner_id=owner, subject_id=subject.id, item_key=ikey, skills=[c.key], prompt=it["question"], kind="mcq",
+            expression=None, answer_key=it["correct"], options=it["options"],
+            difficulty=DIFFICULTY_PRIORS[it["difficulty"]] + 10.0 * min(c.position, 12), typical_ms=40_000,
+            diagnostic=True, verified=ok, generated=True, calibrated=False, cross_checked=ok, n_answers=0,
+            language="en", source_page=(c.citations[0].get("page") if c.citations else None) or None,
+            difficulty_label=it["difficulty"]))
+        existing.add(ikey)
+    db.flush()
+    return made, verified
 
 
 # ------------------------------------------------------------------ status
 
 def _job(db: Session, subject) -> jobs.Job | None:
-    return db.scalar(select(jobs.Job).where(jobs.Job.idempotency_key == _job_key(subject)))
+    """The latest generation job for the current roadmap."""
+    rows = db.scalars(select(jobs.Job).where(jobs.Job.owner_id == subject.owner_id, jobs.Job.type == JOB)).all()
+    mine = [j for j in rows if j.idempotency_key.startswith(_job_key(subject, 0)[:-1])]
+    return max(mine, key=lambda j: j.payload.get("n", 1), default=None)
 
 
 def latest_session(db: Session, owner_id: str, subject_id: str) -> DiagnosticSessionRow | None:
     return db.scalar(select(DiagnosticSessionRow).where(
-        DiagnosticSessionRow.owner_id == owner_id, DiagnosticSessionRow.subject_id == subject_id)
+        DiagnosticSessionRow.owner_id == owner_id, DiagnosticSessionRow.subject_id == subject_id,
+        DiagnosticSessionRow.status != "invalid")
         .order_by(DiagnosticSessionRow.created_at.desc()))
 
 
@@ -194,7 +242,10 @@ def status(db: Session, owner_id: str, subject_id: str) -> dict:
     subject = workspaces.get_subject(db, owner_id, subject_id)
     sess = latest_session(db, owner_id, subject_id)
     base = {"generated_items": 0, "verified_items": 0, "answered": len(sess.answers or []) if sess else 0,
-            "job_id": None, "uses_ai_questions": False}
+            "job_id": None, "uses_ai_questions": False,
+            "discarded_test": sess is None and db.scalar(select(DiagnosticSessionRow.id).where(
+                DiagnosticSessionRow.owner_id == owner_id, DiagnosticSessionRow.subject_id == subject_id,
+                DiagnosticSessionRow.status == "invalid").limit(1)) is not None}
     if subject.prior_knowledge != "some":
         return {**base, "state": "not_needed"}
     rows = db.scalars(select(DiagnosticItemRow).where(DiagnosticItemRow.owner_id == owner_id,
@@ -207,13 +258,24 @@ def status(db: Session, owner_id: str, subject_id: str) -> dict:
     if subject.status != "ready":
         return {**base, "state": "preparing"}
     job = _job(db, subject)
-    if job is not None:
-        base["job_id"] = job.id
-        if job.status in (jobs.QUEUED, jobs.RUNNING):
-            return {**base, "state": "preparing"}
-        if job.status == jobs.FAILED and not base["verified_items"]:
-            return {**base, "state": "failed"}
+    base["job_id"] = job.id if job else None
+    targets = _targets(db, owner_id, subject_id)
+    base["questions_target"] = 3 * len(targets)
+    if job is not None and job.status in (jobs.QUEUED, jobs.RUNNING):
+        return {**base, "state": "preparing"}
+    if targets and _ai_available() and covered(db, owner_id, subject_id) < ENOUGH:
+        if job is not None and job.payload.get("n", 1) >= MAX_ROUNDS:
+            return {**base, "state": "ready" if base["verified_items"] >= 5 else "failed"}
+        return {**base, "state": "preparing"}  # the page calls prepare(), which starts (the next) writing job
     return {**base, "state": "ready"}
+
+
+def prepare(db: Session, owner_id: str, subject_id: str) -> dict:
+    """Make sure questions are being written (idempotent): older subjects have no v2 questions yet."""
+    subject = workspaces.get_subject(db, owner_id, subject_id)
+    if subject.prior_knowledge == "some" and latest_session(db, owner_id, subject_id) is None:
+        start_generation(db, owner_id, subject_id)
+    return status(db, owner_id, subject_id)
 
 
 # ------------------------------------------------------------------ level + metrics
@@ -336,7 +398,11 @@ def learner_context(db: Session, owner_id: str, subject_id: str) -> dict:
     subject = workspaces.get_subject(db, owner_id, subject_id)
     r = report(db, owner_id, subject_id)
     concepts = r.get("concepts") or []
+    from thinkfirst.platform.identity import service as identity
+
+    prof = identity.learner_profile(db, owner_id)
     return {"level": r.get("level") or "beginner", "goal": subject.goal or "explore",
+            "field": prof["field"], "status": prof["status"],
             "known": [c["title"] for c in concepts if c["status"] == "known"],
             "gaps": [c["title"] for c in concepts if c["status"] == "to_learn" and not c.get("is_foundation")]}
 

@@ -315,6 +315,16 @@ def update_tracking_consent(db: Session, owner_id: str, *, grant: list[str] = ()
     return student_consent_public(row, state)
 
 
+STATUSES = ("school", "university", "working", "self_learner")
+
+
+def learner_profile(db: Session, owner_id: str) -> dict:
+    """What may be shown to content generators: situation, speciality and interests. Never the name or the age."""
+    row = db.scalar(select(StudentConsent).where(StudentConsent.owner_id == owner_id))
+    d = (row.onboarding_data if row else None) or {}
+    return {"status": d.get("status"), "field": d.get("field") or "", "interests": (d.get("comfort") or {}).get("interests") or []}
+
+
 def complete_onboarding(db: Session, user: User, *, goal: str = "unsure", timezone: str = "UTC",
                         input_preference: str = "text", birth_year: int | None = None,
                         guardian_email: str | None = None, guardian_consented: bool | None = None,
@@ -322,10 +332,17 @@ def complete_onboarding(db: Session, user: User, *, goal: str = "unsure", timezo
                         level: str | None = None, field: str | None = None, exam_date: str | None = None,
                         prior_confidence: int | None = None, study_times: list[str] | None = None,
                         hours_per_week: float | None = None, first_session_slot: str | None = None,
-                        interests: list[str] | None = None) -> dict:
+                        interests: list[str] | None = None, display_name: str | None = None,
+                        status: str | None = None, study_year: str | None = None, job_title: str | None = None) -> dict:
     """10-step onboarding architecture (under 3 minutes). Every field has a named consumer."""
+    if status is not None and status not in STATUSES:
+        raise ValidationFailed("Choose school, university, working or self-learner.", field="status")
+    if hours_per_week is not None and not (0 < hours_per_week <= 80):
+        raise ValidationFailed("Hours per week must be between 1 and 80.", field="hours_per_week")
     if birth_year is not None:
         apply_age_gate(db, user.id, birth_year, guardian_email=guardian_email)
+    if display_name is not None and display_name.strip():
+        user.display_name = display_name.strip()[:120]
     if grant_tiers is not None or guardian_consented is not None or deal_accepted is not None:
         update_tracking_consent(db, user.id, grant=grant_tiers or [], guardian_consented=guardian_consented,
                                 guardian_email=guardian_email, deal_accepted=deal_accepted)
@@ -344,7 +361,10 @@ def complete_onboarding(db: Session, user: User, *, goal: str = "unsure", timezo
         "goal": goal,
         "exam_date": exam_date if exam_date is not None else data.get("exam_date"),
         "level": level or data.get("level") or "university",
-        "field": field if field is not None else data.get("field", ""),
+        "field": field.strip()[:120] if field is not None else data.get("field", ""),
+        "status": status or data.get("status"),
+        "study_year": study_year.strip()[:60] if study_year is not None else data.get("study_year", ""),
+        "job_title": job_title.strip()[:120] if job_title is not None else data.get("job_title", ""),
         "prior_confidence": prior_confidence if prior_confidence is not None else data.get("prior_confidence", 3),
         "prior_theta": starting_theta,
         "rhythm": {
@@ -355,7 +375,7 @@ def complete_onboarding(db: Session, user: User, *, goal: str = "unsure", timezo
         "comfort": {
             "language": user.preferences.get("language", "en"),
             "voice_enabled": input_preference == "voice",
-            "interests": interests if interests is not None else data.get("comfort", {}).get("interests", []),
+            "interests": [str(i).strip()[:60] for i in interests if str(i).strip()][:12] if interests is not None else data.get("comfort", {}).get("interests", []),
         },
     })
     row.onboarding_data = data

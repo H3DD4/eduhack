@@ -26,6 +26,7 @@ from thinkfirst.platform.workspaces import service as workspaces
 
 ROLES = {"course", "notes", "past_exam"}
 ACTIVE_STATUSES = {"queued", "extracting", "extracted", "awaiting_confirmation", "ready"}
+TOC_LABEL = "From your book's table of contents: one level per chapter"
 OUTLINE_LABEL = "Extracted from your course headings (check each level)"
 HEURISTIC_LABEL = "Heuristic extraction from your document's numbered headings (no AI used). Check every item."
 AI_LABEL_TMPL = "AI-proposed scope ({provider}). Check every item; uncertain items are marked."
@@ -108,17 +109,30 @@ def _extract_job(db: Session, job: jobs.Job) -> dict:
         db.add(row)
         new_chunks.append(row)
     db.flush()
-    from thinkfirst.modules.rag import service as rag
+    if len(new_chunks) <= 300:
+        from thinkfirst.modules.rag import service as rag
 
-    rag.index_course_chunks(db, new_chunks)  # Qdrant + HF embeddings (fallback vectors stay in Postgres)
+        rag.index_course_chunks(db, new_chunks)  # Qdrant + embeddings (fallback vectors stay in Postgres)
+    else:  # a book: the student sees the roadmap first, indexing (minutes) continues in its own job
+        jobs.enqueue(db, "ingestion.index_chunks", src.owner_id, {"revision_id": rev.id}, idempotency_key=f"index:{rev.id}")
     src.current_revision_id = rev.id
-    src.status = "extracted"
+    src.status, src.error_code = "extracted", None
     db.flush()
     events.publish(db, events.Event(events.CONTENT_INDEXED, src.owner_id, {
         "subject_id": src.subject_id, "source_id": src.id, "revision_id": rev.id, "pages": len(pages),
     }))
     propose_scope(db, src.owner_id, src.subject_id)
     return {"source_id": src.id, "status": src.status, "pages": len(pages)}
+
+
+@jobs.job_handler("ingestion.index_chunks")
+def _index_job(db: Session, job: jobs.Job) -> dict:
+    from thinkfirst.modules.rag import service as rag
+
+    rows = list(db.scalars(select(SourceChunk).where(SourceChunk.revision_id == job.payload["revision_id"])).all())
+    for i in range(0, len(rows), 256):
+        rag.index_course_chunks(db, rows[i:i + 256])
+    return {"chunks": len(rows)}
 
 
 def _sources(db: Session, owner_id: str, subject_id: str) -> list[Source]:
@@ -138,33 +152,19 @@ def propose_scope(db: Session, owner_id: str, subject_id: str) -> ConceptGraphRe
             subject.status = "needs_attention"
         return None
     concepts, items, citations_src = [], [], {}
-    for s in usable:
-        pages = db.scalars(select(SourcePage).where(SourcePage.revision_id == s.current_revision_id)
-                           .order_by(SourcePage.page_no)).all()
-        cs, its = extract.heuristic_scope([p.text for p in pages])
+    basis, label = "", ""
+    for s in usable:  # every file contributes, with the best structure it has
+        pages = [p.text for p in db.scalars(select(SourcePage).where(SourcePage.revision_id == s.current_revision_id)
+                                            .order_by(SourcePage.page_no)).all()]
+        cs, its, b, lab = _source_scope(db, owner_id, s, pages)
+        cs, its = _renumber(cs, its, {c.key for c in concepts}, max((c.unit_no for c in concepts), default=0))
         for c in cs:
             citations_src[c.key] = (s, c)
         concepts.extend(cs)
         items.extend((s, it) for it in its)
-    basis, label = "extracted-heuristic", HEURISTIC_LABEL
+        if cs and not basis:
+            basis, label = b, lab
     if not concepts:
-        # No "1.2 Title" numbering: the course's own headings (Chapitre / Définition / II. / 2.1 ...) give a roadmap
-        # that follows the course exactly; with an AI service, the AI proposal is used and the outline is its fallback.
-        outline = []
-        for s in usable:
-            pages_s = db.scalars(select(SourcePage).where(SourcePage.revision_id == s.current_revision_id)
-                                 .order_by(SourcePage.page_no)).all()
-            for c in extract.outline_scope([p.text for p in pages_s]):
-                citations_src[c.key] = (s, c)
-                outline.append(c)
-            if outline:
-                break
-        provider = llm.active_provider()
-        if provider != "demo":
-            concepts = _ai_scope(db, owner_id, usable, citations_src)
-            basis, label = "extracted-ai", AI_LABEL_TMPL.format(provider=provider)
-        if not concepts and outline:
-            concepts, basis, label = outline, "extracted-outline", OUTLINE_LABEL
         if not concepts:
             for s in usable:
                 s.status, s.error_code = "needs_attention", "NO_STRUCTURE_FOUND"
@@ -207,11 +207,62 @@ def propose_scope(db: Session, owner_id: str, subject_id: str) -> ConceptGraphRe
     return rev
 
 
-def _ai_scope(db: Session, owner_id: str, usable: list[Source], citations_src: dict) -> list:
-    s = usable[0]
+def _source_scope(db: Session, owner_id: str, src: Source, pages: list[str]) -> tuple[list, list, str, str]:
+    """(concepts, exercises, basis, label) for one file: table of contents (books) > numbered headings > AI > headings."""
+    if len(pages) > 60 and (toc := extract.toc_scope(pages)):
+        return toc, [], "extracted-outline", TOC_LABEL
+    cs, its = extract.heuristic_scope(pages)
+    if cs:
+        return cs, its, "extracted-heuristic", HEURISTIC_LABEL
+    provider = llm.active_provider()
+    if provider != "demo" and (ai := _ai_scope(db, owner_id, src)):
+        return ai, [], "extracted-ai", AI_LABEL_TMPL.format(provider=provider)
+    return extract.outline_scope(pages), [], "extracted-outline", OUTLINE_LABEL
+
+
+def _renumber(concepts: list, items: list, taken: set[str], last_unit: int) -> tuple[list, list]:
+    """Second file also starts at "1.1"? Continue the unit numbers instead of dropping its concepts."""
+    if not taken & {c.key for c in concepts}:
+        return concepts, items
+    remap: dict[str, str] = {}
+    foundations = sum(1 for k in taken if k.startswith("F"))
+    for c in concepts:
+        unit, _, rest = c.key.partition(".")
+        new = (f"F{foundations + int(c.key[1:])}" if c.key[:1] == "F" and c.key[1:].isdigit()
+               else f"{int(unit) + last_unit}.{rest}" if unit.isdigit() and rest else f"{last_unit + c.unit_no}.{c.key}")
+        remap[c.key] = new[:32]
+    for c in concepts:
+        c.key, c.unit_no = remap[c.key], c.unit_no + last_unit
+        c.prerequisites = [remap.get(k, k) for k in c.prerequisites]
+    for it in items:
+        it.concept_key = remap.get(it.concept_key, it.concept_key)
+    return concepts, items
+
+
+def concept_text(db: Session, owner_id: str, concept: Concept, limit: int = 6000) -> str:
+    """The course text of a concept: its cited page up to where the next concept of that file starts."""
+    ex = concept_excerpt(db, owner_id, concept)
+    if not ex or ex.get("tombstone"):
+        return ""
+    ci = concept.citations[0]
+    starts = sorted(c.citations[0]["page"] for c in concepts_of(db, concept.graph_revision_id)
+                    if c.citations and c.citations[0].get("source_id") == ci["source_id"] and c.citations[0]["page"] > ci["page"])
+    end = starts[0] if starts else ci["page"] + 12
+    if end <= ci["page"] + 1:
+        return ex["text"]
+    pages = db.scalars(select(SourcePage).where(SourcePage.revision_id == ci["revision_id"], SourcePage.page_no >= ci["page"],
+                                                SourcePage.page_no < end).order_by(SourcePage.page_no).limit(40)).all()
+    per = max(300, limit // max(1, len(pages)))
+    return "\n".join(p.text[:per] for p in pages)[:limit]
+
+
+def _ai_scope(db: Session, owner_id: str, s: Source) -> list:
     pages = db.scalars(select(SourcePage).where(SourcePage.revision_id == s.current_revision_id)
                        .order_by(SourcePage.page_no)).all()
-    res = llm.run(db, "propose_concepts", {"course_pages": [{"page": p.page_no, "text": p.text[:4000]} for p in pages[:40]]},
+    step = max(1, len(pages) // 40)
+    sample = pages[::step][:40]
+    per = max(400, 28_000 // max(1, len(sample)))  # stay inside the provider's request size
+    res = llm.run(db, "propose_concepts", {"course_pages": [{"page": p.page_no, "text": p.text[:per]} for p in sample]},
                   owner_id=owner_id, purpose="scope_proposal")
     if res.status != "ok" or not res.output:
         return []
@@ -228,7 +279,6 @@ def _ai_scope(db: Session, owner_id: str, usable: list[Source], citations_src: d
                                          span_end=max(idx, 0) + len(quote), objective=str(c.get("objective", "")),
                                          prerequisites=[str(p) for p in c.get("prerequisites", [])],
                                          is_foundation=bool(c.get("is_foundation")), uncertain=True, quote=quote)
-            citations_src[pc.key] = (s, pc)
             out.append(pc)
     return out
 
@@ -278,7 +328,7 @@ def retry_source(db: Session, owner_id: str, source_id: str) -> Source:
         return src
     job = db.scalar(select(jobs.Job).where(jobs.Job.idempotency_key == f"extract:{rev.id}:{src.generation}"))
     if job is not None:
-        src.status = "queued"
+        src.status, src.error_code = "queued", None
         job.status = jobs.FAILED  # allow retry of the same job ID
         jobs.retry(db, job)
     return src
@@ -505,10 +555,16 @@ def _topic_scope_job(db: Session, job: jobs.Job) -> dict:
     g = rag.hybrid(db, owner, subject_id, p["topic"], fetch_query=p["topic"])  # library first, live fetch if missing
     found = g["citations"]
     grounding = g["text"][:6000]
-    res = llm.run(db, "generate_topic_scope", {"student_topic": p["topic"], "level": p.get("level", "university"),
-                                               "course_excerpt": grounding}, owner_id=owner, purpose="topic_scope")
-    units = (res.output or {}).get("units") or []
+    units: list = []
+    for _ in range(2):
+        res = llm.run(db, "generate_topic_scope", {"student_topic": p["topic"], "level": p.get("level", "university"),
+                                                   "course_excerpt": grounding}, owner_id=owner, purpose="topic_scope")
+        units = [u for u in (res.output or {}).get("units") or [] if isinstance(u, dict)]
+        if res.status == "ok" and any(u.get("concepts") for u in units):
+            break
     if res.status != "ok" or not any(u.get("concepts") for u in units):
+        if not res.simulated:
+            raise jobs.JobError("TOPIC_GENERATION_FAILED")  # setup shows "Try again"
         workspaces.set_status(db, owner_id=owner, subject_id=subject_id, status="needs_attention")
         return {"error": "TOPIC_GENERATION_FAILED" if not res.simulated else "AI_NOT_CONFIGURED"}
     no = (db.scalar(select(func.max(ConceptGraphRevision.revision_no))

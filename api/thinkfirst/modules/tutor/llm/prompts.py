@@ -127,8 +127,10 @@ REGISTRY: dict[str, PromptTemplate] = {
     ),
     "generate_concept_pack": PromptTemplate(
         id="generate_concept_pack",
-        version="v3",
+        version="v4",
         system=(
+            "Everything must be about <subject> itself: use its own language, syntax, libraries, notation and examples (a Java "
+            "subject uses Java, never Python). Use a mathematical exercise only when <subject> is mathematical. "
             "You write a compact, accurate study pack for ONE concept for a university student. ThinkFirst makes the "
             "student think: lessons are short, practice questions have a single checkable answer, and hints climb "
             "gradually without giving the answer before the last level. Produce: a lesson (summary <= 90 words, 3-4 key "
@@ -143,7 +145,8 @@ REGISTRY: dict[str, PromptTemplate] = {
             "solution. Adapt to <learner>: level beginner = explain from scratch, define every term before using it, "
             "intuition first, smaller steps (summary may reach 160 words); intermediate = standard; advanced/expert = "
             "concise, more conditions, edge cases and harder practice. goal exam = point out what is typically asked and "
-            "common traps. Use the student's language. " + UNTRUSTED_NOTE
+            "common traps. When it helps, take examples from <learner>.field (the student's speciality) without changing the "
+            "subject. Use the student's language. " + UNTRUSTED_NOTE
         ),
         output_schema={"type": "object", "properties": {
             "lesson": {"type": "object", "properties": {
@@ -208,14 +211,17 @@ LEVEL_DEPTH = (
     "intuition. At EVERY level nothing from the source may be dropped: shorter means denser, never incomplete. "
     "<learner>.known concepts get a quick recap; <learner>.gaps get the fullest explanation. goal exam: add 'tip' "
     "blocks on what is typically asked and 'warning' blocks on classic traps. goal explore: add real-world "
-    "connections. Use the language of the source. Math in LaTeX between $...$. "
+    "connections. When it helps, take examples from <learner>.field (the student's speciality) without changing the subject. "
+    "Use the language of the source. Math in LaTeX between $...$. "
 )
 
 REGISTRY.update({
     "generate_placement_items": PromptTemplate(
         id="generate_placement_items",
-        version="v1",
+        version="v2",
         system=(
+            "Everything must be about <subject> itself: use its own language, syntax, libraries, notation and examples (a Java "
+            "subject uses Java, never Python). Use a mathematical exercise only when <subject> is mathematical. "
             "You write a placement test (multiple-choice questions) to find a student's level on a topic. For EACH "
             "concept in <concepts> write exactly 3 questions: one easy (recall / recognise the definition), one medium "
             "(apply it to a simple case), one hard (combine, reason about a condition, or a multi-step problem). Each "
@@ -235,10 +241,11 @@ REGISTRY.update({
     ),
     "cross_check_items": PromptTemplate(
         id="cross_check_items",
-        version="v1",
+        version="v2",
         system=(
             "Solve each multiple-choice question independently and pick the single correct option id. If no option is "
-            "correct or more than one is, answer 'none'. Do not explain. " + UNTRUSTED_NOTE
+            "correct or more than one is, or the question is not about <subject> (e.g. another programming language or "
+            "another field), answer 'none'. Do not explain. " + UNTRUSTED_NOTE
         ),
         output_schema={"type": "object", "properties": {"answers": {"type": "array", "items": {"type": "object", "properties": {
             "qid": {"type": "string"}, "option_id": {"type": "string"}}, "required": ["qid", "option_id"]}}},
@@ -261,8 +268,10 @@ REGISTRY.update({
     ),
     "explain_topic_section": PromptTemplate(
         id="explain_topic_section",
-        version="v1",
+        version="v2",
         system=(
+            "Everything must be about <subject> itself: use its own language, syntax, libraries, notation and examples (a Java "
+            "subject uses Java, never Python). Use a mathematical exercise only when <subject> is mathematical. "
             "The student has no course file. Write one detailed section of a course summary for the concept in "
             "<concept>, as a good textbook would: definitions, the main rules or results with their conditions, why they "
             "hold, a fully worked example, common mistakes and check questions. Stay accurate; when <course_excerpt> "

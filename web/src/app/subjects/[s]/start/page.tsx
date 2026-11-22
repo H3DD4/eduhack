@@ -48,6 +48,14 @@ export default function LearningPath() {
     }
   });
 
+  // Older subjects have no questions yet: ask the server to write them (idempotent).
+  const prepared = useRef(0);
+  useEffect(() => {
+    if (data?.placement?.state !== "preparing" || Date.now() - prepared.current < 10_000) return;
+    prepared.current = Date.now();
+    api(`/subjects/${s}/placement/prepare`, { method: "POST" }).then(reload).catch(() => undefined);
+  }, [data, s, reload]);
+
   const changePrior = async (prior: "some" | "none") => {
     setBusy(true);
     await api(`/subjects/${s}/intent`, { method: "PATCH", json: { prior_knowledge: prior } }).catch((e) => setErr(e.message));
@@ -120,7 +128,7 @@ export default function LearningPath() {
             )}
 
             {data.level?.available && (
-              <section id="level" aria-labelledby="level-h" className="space-y-3">
+              <section id="level" aria-labelledby="level-h" className="scroll-mt-44 space-y-3">
                 <h2 id="level-h" className="text-section">Your level on {data.subject.name}</h2>
                 <LevelReport report={data.level} />
                 {data.level.basis === "placement_test" && (

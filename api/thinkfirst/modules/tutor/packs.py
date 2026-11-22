@@ -120,6 +120,10 @@ def ensure_pack(db: Session, owner_id: str, subject_id: str, concept_id: str) ->
         db.add(pack)
         db.flush()
         jobs.enqueue(db, "tutor.concept_pack", owner_id, {"pack_id": pack.id}, idempotency_key=f"pack:{concept_id}")
+    elif pack.provider == "demo" and llm.active_provider() != "demo":
+        pack.status, pack.provider = "pending", ""
+        db.flush()
+        jobs.enqueue(db, "tutor.concept_pack", owner_id, {"pack_id": pack.id}, idempotency_key=f"pack:{concept_id}:ai")
     return pack
 
 
@@ -206,22 +210,28 @@ def _pack_job(db: Session, job: jobs.Job) -> dict:
         raise jobs.JobError("MISSING")
     concept = ingestion.get_concept(db, pack.owner_id, pack.concept_id)
     excerpt = ingestion.concept_excerpt(db, pack.owner_id, concept)
-    grounding = (excerpt or {}).get("text", "") if excerpt and not excerpt.get("tombstone") else ""
+    from thinkfirst.modules.diagnostic.placement import topic_of
+    from thinkfirst.platform.workspaces import service as workspaces
+
+    topic = topic_of(workspaces.get_subject(db, pack.owner_id, pack.subject_id))
+    grounding = ingestion.concept_text(db, pack.owner_id, concept) if excerpt and not excerpt.get("tombstone") else ""
     sources: list[dict] = []
     if not grounding:
         from thinkfirst.modules.rag import service as rag
 
-        g = rag.hybrid(db, pack.owner_id, pack.subject_id, f"{concept.title} {concept.objective}", fetch_query=concept.title)
+        g = rag.hybrid(db, pack.owner_id, pack.subject_id, f"{topic} {concept.title} {concept.objective}",
+                       fetch_query=f"{topic} {concept.title}")
         grounding, sources = g["text"], [c for c in g["citations"] if c.get("kind") == "open"]
     from thinkfirst.modules.diagnostic import placement
 
     fp, course_prof = _subject_course_profile(db, pack.owner_id, pack.subject_id, grounding)
     ctx = placement.learner_context(db, pack.owner_id, pack.subject_id)
     res = llm.run(db, "generate_concept_pack", {
+        "subject": topic,
         "concept": {"title": concept.title, "objective": concept.objective, "unit": concept.unit_title},
         "course_excerpt": grounding,
         "course_style": style_summary(fp),
-        "learner": {"level": ctx["level"], "goal": ctx["goal"],
+        "learner": {"level": ctx["level"], "goal": ctx["goal"], "field": ctx["field"], "status": ctx["status"],
                     "already_known": concept.title in ctx["known"]},
     }, owner_id=pack.owner_id, purpose="concept_pack")
     if res.status != "ok" or not res.output:

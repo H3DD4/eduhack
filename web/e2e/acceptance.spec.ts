@@ -134,10 +134,12 @@ test("start wizard 'test my level': test first -> roadmap built on the level -> 
 
   // the level test comes right after the roadmap is confirmed
   await expect(page).toHaveURL(/\/diagnostic$/);
-  // the roadmap stays locked until the test is done; Back returns to the test
+  // the roadmap stays locked until the test is done; Back goes to My path, which offers the test again
   await page.getByRole("link", { name: "Roadmap", exact: true }).click();
   await expect(page.locator("[data-screen=W01-locked]")).toBeVisible();
-  await page.getByRole("button", { name: "Back to the previous page" }).click();
+  await page.getByRole("link", { name: "Back to My path" }).click();
+  await expect(page).toHaveURL(/\/start$/);
+  await page.getByRole("button", { name: "Take the level test" }).first().click();
   await expect(page).toHaveURL(/\/diagnostic$/);
 
   await page.getByRole("button", { name: /Start the level test/ }).click();

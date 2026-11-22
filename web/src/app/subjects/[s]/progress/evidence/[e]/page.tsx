@@ -18,7 +18,7 @@ export default function Receipt() {
   const [done, setDone] = useState<string | null>(null);
   const ev = data?.evidence;
   return (
-    <SubjectShell subjectId={s} crumb="Evidence receipt">
+    <SubjectShell subjectId={s} crumb="Evidence receipt" parent="progress">
       <div data-screen="W08" className="max-w-prose space-y-4">
         {!data && !error && <Skeleton lines={6} />}
         {error && <ErrorBox message={error.status === 404 ? "Not available." : error.message} onRetry={reload} />}

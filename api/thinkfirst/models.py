@@ -30,7 +30,7 @@ from tutor.store import sqlalchemy_store as _tutor_tracks  # noqa: F401
 
 # Tables holding private student data (owner_id). Postgres RLS policies are created for each.
 PRIVATE_TABLES = [
-    "core.jobs", "workspaces.subjects", "ingestion.sources", "ingestion.source_revisions", "ingestion.source_pages",
+    "core.jobs", "workspaces.subjects", "workspaces.deadlines", "tutor.course_summaries", "tutor.course_summary_sections", "ingestion.sources", "ingestion.source_revisions", "ingestion.source_pages",
     "ingestion.source_chunks", "ingestion.concept_graph_revisions", "ingestion.concepts", "ingestion.source_items",
     "tutor.sessions", "tutor.tasks", "tutor.help_events", "tutor.reflections", "assessment.rubrics",
     "assessment.attempts", "assessment.assessments", "explain_back.audio_takes", "explain_back.transcript_versions",
