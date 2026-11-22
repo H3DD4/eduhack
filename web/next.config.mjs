@@ -1,5 +1,10 @@
 /** Same-origin /api proxy so the httpOnly session cookie works (DECISIONS D-004). */
-const API_URL = process.env.API_URL || "http://127.0.0.1:8000";
+const rawApi = (process.env.API_URL || "http://127.0.0.1:8000").trim().replace(/\/+$/, "");
+const API_URL = /^https?:\/\//i.test(rawApi)
+  ? rawApi
+  : rawApi.includes(":") || rawApi.startsWith("localhost")
+    ? `http://${rawApi}`
+    : `https://${rawApi}`;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

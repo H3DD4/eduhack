@@ -13,4 +13,4 @@ COPY api/alembic.ini ./api/
 COPY worker ./worker
 WORKDIR /app/api
 EXPOSE 8000
-CMD ["uvicorn", "thinkfirst.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn thinkfirst.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

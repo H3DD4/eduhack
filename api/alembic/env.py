@@ -7,9 +7,9 @@ from sqlalchemy import create_engine
 import thinkfirst.models  # noqa: F401
 from alembic import context
 from thinkfirst.config import get_settings
-from thinkfirst.core.db import Base
+from thinkfirst.core.db import Base, normalize_database_url
 
-url = os.environ.get("MIGRATION_DATABASE_URL") or get_settings().database_url
+url = normalize_database_url(os.environ.get("MIGRATION_DATABASE_URL") or get_settings().database_url)
 target_metadata = Base.metadata
 
 

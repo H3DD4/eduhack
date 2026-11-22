@@ -135,3 +135,10 @@ def test_db_locked_operational_error_returns_503(tmp_path, monkeypatch):
             coro.close()
         dbmod.get_engine().dispose()
         get_settings.cache_clear()
+
+
+def test_normalize_database_url():
+    assert dbmod.normalize_database_url("postgres://u:p@host:5432/db") == "postgresql+psycopg://u:p@host:5432/db"
+    assert dbmod.normalize_database_url("postgresql://u:p@host/db") == "postgresql+psycopg://u:p@host/db"
+    assert dbmod.normalize_database_url("postgresql+psycopg://u:p@host/db") == "postgresql+psycopg://u:p@host/db"
+    assert dbmod.normalize_database_url("sqlite:///./thinkfirst-dev.db") == "sqlite:///./thinkfirst-dev.db"

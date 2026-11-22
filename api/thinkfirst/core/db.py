@@ -109,8 +109,17 @@ def _is_sqlite(url: str) -> bool:
     return url.startswith("sqlite")
 
 
+def normalize_database_url(url: str) -> str:
+    """Accept Render/Heroku-style postgres:// or postgresql:// URLs and route them through psycopg3."""
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url.removeprefix("postgres://")
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url.removeprefix("postgresql://")
+    return url
+
+
 def make_engine(url: str | None = None):
-    url = url or get_settings().database_url
+    url = normalize_database_url(url or get_settings().database_url)
     if _is_sqlite(url):
         raw_path = url.split("sqlite:///", 1)[1] if "sqlite:///" in url else ":memory:"
         is_mem = raw_path in ("", ":memory:")

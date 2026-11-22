@@ -1,0 +1,78 @@
+# Render Blueprint for ThinkFirst (web + FastAPI API + Managed PostgreSQL with pgvector).
+# Deploy on Render: New -> Blueprint -> select this repo (branch: feat/agentic-tutor).
+#
+# Notes:
+# - Free plan uses 512 MB RAM and ephemeral storage: EMBEDDING_PROVIDER defaults to "demo"
+#   so the ~220 MB local fastembed ONNX model does not OOM. Set EMBEDDING_PROVIDER=hf + HF_TOKEN
+#   for semantic embeddings on 512 MB, or switch to EMBEDDING_PROVIDER=local on a 2 GB+ plan.
+# - To keep uploaded PDFs/audio across deploys, configure an S3-compatible bucket (e.g. Cloudflare R2)
+#   with STORAGE_BACKEND=s3 + S3_* env vars, or upgrade to a paid plan and attach a Render Disk.
+# - For large textbooks/background jobs on paid plans, add a Render Key Value (Redis) instance
+#   plus a Background Worker running `python -m arq worker.worker.WorkerSettings` with JOB_MODE=arq.
+
+databases:
+  - name: thinkfirst-db
+    databaseName: thinkfirst
+    user: thinkfirst
+    plan: free
+
+services:
+  - type: web
+    name: thinkfirst-api
+    runtime: docker
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/health
+    dockerCommand: sh -c "python -m alembic upgrade head && python -m thinkfirst.seed && uvicorn thinkfirst.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: thinkfirst-db
+          property: connectionString
+      - key: JOB_MODE
+        value: inline
+      - key: STORAGE_BACKEND
+        value: local
+      - key: VECTOR_BACKEND
+        value: postgres
+      - key: EMBEDDING_PROVIDER
+        value: demo
+      - key: DEMO_MODE
+        value: "true"
+      - key: ENABLE_ACCESSIBILITY_MODULE
+        value: "true"
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: LLM_PROVIDER
+        value: auto
+      - key: APP_BASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OLLAMA_API_KEY
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+
+  - type: web
+    name: thinkfirst-web
+    runtime: node
+    rootDir: web
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npx next start -H 0.0.0.0 -p ${PORT:-3000}
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: API_URL
+        fromService:
+          type: web
+          name: thinkfirst-api
+          property: host
