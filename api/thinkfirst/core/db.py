@@ -112,6 +112,8 @@ def _is_sqlite(url: str) -> bool:
 def make_engine(url: str | None = None):
     url = url or get_settings().database_url
     if _is_sqlite(url):
+        raw_path = url.split("sqlite:///", 1)[1] if "sqlite:///" in url else ":memory:"
+        tutor_db = ":memory:" if raw_path in ("", ":memory:") else f"{raw_path}.tutor_tracks.sqlite"
         engine = create_engine(
             url,
             connect_args={"check_same_thread": False},
@@ -121,6 +123,7 @@ def make_engine(url: str | None = None):
         @event.listens_for(engine, "connect")
         def _fk_on(dbapi_conn, _):  # pragma: no cover - trivial
             dbapi_conn.execute("PRAGMA foreign_keys=ON")
+            dbapi_conn.execute(f"ATTACH DATABASE '{tutor_db}' AS tutor_tracks")
 
     else:
         engine = create_engine(url, pool_pre_ping=True)
@@ -179,5 +182,7 @@ def get_db() -> Iterator[Session]:
 
 def create_all_for_tests(engine) -> None:
     import thinkfirst.models  # noqa: F401  (register all module models)
+    from tutor.store.sqlalchemy_store import metadata as tutor_tracks_metadata
 
     Base.metadata.create_all(engine)
+    tutor_tracks_metadata.create_all(engine)

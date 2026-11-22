@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
+import { tutor } from "@/lib/tutor";
 import { SubjectShell } from "./SubjectShell";
 import { Companion, ErrorBox, EvidencePill, Skeleton } from "./ui";
 
@@ -136,6 +137,18 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
     }
   };
 
+  const launchTutorTrack = async (valley: "revision" | "skills") => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const t = await tutor.fromSubject(subjectId, { valley });
+      router.push(`/tutor/${t.id}`);
+    } catch (e: any) {
+      setErr(e.message);
+      setBusy(false);
+    }
+  };
+
   const suggested = data?.suggested_concept_id;
   const resume = data?.resume;
   const primary = conceptId ? null : resume ? (
@@ -210,10 +223,24 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
                     <Link className="btn-link" href={`/subjects/${subjectId}/roadmap/concepts/${data.suggestion.id}`}>Open it</Link>
                   </div>
                 )}
-                <div className="border-t border-border pt-3">
+                <div className="space-y-2 border-t border-border pt-3">
                   <Link className="btn-secondary w-full" href={`/subjects/${subjectId}/diagnostic`}>
                     Find where to start (Adaptive check)
                   </Link>
+                  <div className="rounded-detail border-2 border-ink bg-soft p-3 space-y-2">
+                    <p className="text-meta font-bold">Agentic Tutor Studio</p>
+                    <p className="text-meta text-ink-muted">
+                      Turn this subject&apos;s documents and mastery profile into a course-fingerprinted revision pack or progressive tutorial.
+                    </p>
+                    <div className="grid gap-2">
+                      <button type="button" className="btn-primary !min-h-[38px] text-meta" disabled={busy} onClick={() => launchTutorTrack("revision")}>
+                        Valley 1 · Exam Revision Pack
+                      </button>
+                      <button type="button" className="btn-secondary !min-h-[38px] text-meta" disabled={busy} onClick={() => launchTutorTrack("skills")}>
+                        Valley 2 · Skill Tutorial
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : (
