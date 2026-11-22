@@ -18,8 +18,10 @@ SUPPORTED = {
     "text/plain": "txt",
     "text/markdown": "md",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "text/html": "html",
 }
-EXT_KIND = {".pdf": "pdf", ".pptx": "pptx", ".docx": "docx", ".txt": "txt", ".md": "md", ".markdown": "md"}
+EXT_KIND = {".pdf": "pdf", ".pptx": "pptx", ".docx": "docx", ".txt": "txt", ".md": "md", ".markdown": "md",
+            ".html": "html", ".htm": "html"}
 
 
 class ExtractionError(Exception):
@@ -59,6 +61,10 @@ def extract_pages(data: bytes, kind: str, max_pages: int) -> list[str]:
             pages.append("\n".join(texts))
         if len(pages) > max_pages:
             raise ExtractionError("TOO_MANY_PAGES")
+    elif kind == "html":  # saved web page / exported notes
+        pages = html_pages(data.decode("utf-8", errors="replace"))
+        if len(pages) > max_pages:
+            raise ExtractionError("TOO_MANY_PAGES")
     elif kind == "docx":
         pages = docx_pages(data)
         if len(pages) > max_pages:
@@ -74,9 +80,75 @@ def extract_pages(data: bytes, kind: str, max_pages: int) -> list[str]:
     else:
         raise ExtractionError("UNSUPPORTED_TYPE")
     pages = [normalize(p) for p in pages]
+    if kind == "pdf" and not any(p.strip() for p in pages):
+        pages = [normalize(p) for p in _pdf_fallback(data, max_pages)]
     if not any(p.strip() for p in pages):
-        raise ExtractionError("NO_TEXT")  # scanned PDFs need OCR (Next)
+        raise ExtractionError("NO_TEXT")  # scanned PDF and no OCR engine installed
     return pages
+
+
+_BLOCK_TAGS = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "section", "article", "pre", "table"}
+
+
+def html_pages(html: str) -> list[str]:
+    """Agentic Tutor parser (main text, headings, MathJax kept) when BeautifulSoup is installed; otherwise the
+    standard-library parser: text of the page, one line per block element, scripts/styles/navigation dropped."""
+    try:
+        from tutor.ingestion.parsers import parse_html
+
+        return [p.text for p in parse_html(html).pages]
+    except ImportError:
+        pass
+    from html.parser import HTMLParser
+
+    class _Text(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.out, self.skip = [], 0
+
+        def handle_starttag(self, tag, attrs):
+            if tag in ("script", "style", "nav", "footer", "header", "noscript"):
+                self.skip += 1
+            elif tag in _BLOCK_TAGS:
+                self.out.append("\n")
+
+        def handle_endtag(self, tag):
+            if tag in ("script", "style", "nav", "footer", "header", "noscript"):
+                self.skip = max(0, self.skip - 1)
+            elif tag in _BLOCK_TAGS:
+                self.out.append("\n")
+
+        def handle_data(self, d):
+            if not self.skip:
+                self.out.append(d)
+
+    t = _Text()
+    try:
+        t.feed(html)
+    except Exception as exc:  # noqa: BLE001
+        raise ExtractionError("UNREADABLE_FILE") from exc
+    text = "\n".join(line.strip() for line in "".join(t.out).split("\n") if line.strip())
+    return split_text_pages(text)
+
+
+def _pdf_fallback(data: bytes, max_pages: int) -> list[str]:
+    """No text layer: the Agentic Tutor PDF parser tries pdfplumber, then OCR (pypdfium2 + pytesseract) when those
+    optional packages are installed. Returns [] when nothing more can be read."""
+    try:
+        from tutor.ingestion.parsers import parse_pdf
+
+        return [p.text for p in parse_pdf(data, max_pages=max_pages).pages]
+    except Exception:  # noqa: BLE001 - optional dependencies missing or unreadable file
+        return []
+
+
+def heading_level(line: str) -> int | None:
+    """Course heading detector from the Agentic Tutor parser: 1 = chapter/unit/part (also roman numerals and
+    upper-case titles), 2 = numbered section "2. ...", 3 = "1.2 ..." sub-section or a labelled block such as
+    Définition / Théorème / Méthode."""
+    from tutor.ingestion.parsers import heading_level as _hl
+
+    return _hl(line)
 
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -170,20 +242,34 @@ class Chunk:
     text: str
 
 
+def _heading_offsets(page: str) -> list[int]:
+    """Character offsets of chapter/section heading lines (levels 1-2) on a page."""
+    out, pos = [], 0
+    for line in page.split("\n"):
+        if pos > 0 and (heading_level(line) or 9) <= 2:
+            out.append(pos)
+        pos += len(line) + 1
+    return out
+
+
 def chunk_pages(pages: list[str], target: int = 600) -> list[Chunk]:
+    """~600-character chunks with exact page offsets (citations quote them). Heading-aware (Agentic Tutor chunker
+    rule): a chunk never crosses a chapter/section heading, so a section's text is retrieved together."""
     chunks: list[Chunk] = []
     for idx, page in enumerate(pages, start=1):
+        bounds = _heading_offsets(page) + [len(page)]
         start = 0
-        while start < len(page):
-            end = min(len(page), start + target)
-            if end < len(page):
-                cut = page.rfind("\n", start, end)
-                if cut > start + target // 3:
-                    end = cut
-            piece = page[start:end].strip()
-            if piece:
-                chunks.append(Chunk(idx, start, end, piece))
-            start = end
+        for stop in bounds:
+            while start < stop:
+                end = min(stop, start + target)
+                if end < stop:
+                    cut = page.rfind("\n", start, end)
+                    if cut > start + target // 3:
+                        end = cut
+                piece = page[start:end].strip()
+                if piece:
+                    chunks.append(Chunk(idx, start, end, piece))
+                start = end
     return chunks
 
 
@@ -239,6 +325,39 @@ class ProposedItem:
     prompt: str
     expression: str | None
     page: int
+
+
+def outline_scope(pages: list[str]) -> list[ProposedConcept]:
+    """Roadmap from the course's own headings (Agentic Tutor heading rules), for courses that do not use the
+    "1.2 Title" format: level-1 headings become units, level-2/3 headings become concepts, in course order, each
+    citing its page and the first sentence after it. Nothing is invented; every concept is marked uncertain."""
+    concepts: list[ProposedConcept] = []
+    unit_no, unit_title = 1, "Unit 1"
+    seen_unit = False
+    for page_no, page in enumerate(pages, start=1):
+        offset = 0
+        lines = page.split("\n")
+        for i, line in enumerate(lines):
+            start = offset
+            offset += len(line) + 1
+            lvl = heading_level(line)
+            if lvl is None:
+                continue
+            title = line.strip().strip(" .:")[:120]
+            if lvl == 1:
+                if seen_unit or concepts:
+                    unit_no += 1
+                unit_title, seen_unit = title, True
+                continue
+            if any(c.title.lower() == title.lower() and c.unit_no == unit_no for c in concepts):
+                continue
+            follow = next((x.strip() for x in lines[i + 1:i + 6] if len(x.strip()) > 30 and heading_level(x) is None), "")
+            n = sum(1 for c in concepts if c.unit_no == unit_no) + 1
+            concepts.append(ProposedConcept(key=f"{unit_no}.{n}", title=title, unit_no=unit_no, unit_title=unit_title,
+                                            page=page_no, span_start=start, span_end=start + len(line),
+                                            objective=follow[:240], prerequisites=[f"{unit_no}.{n - 1}"] if n > 1 else [],
+                                            uncertain=True, quote=follow[:240]))
+    return concepts if len(concepts) >= 2 else []
 
 
 def heuristic_scope(pages: list[str]) -> tuple[list[ProposedConcept], list[ProposedItem]]:

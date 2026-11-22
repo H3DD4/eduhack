@@ -324,14 +324,14 @@ export default function Diagnostic() {
             </div>
             {wizard && lvl?.report?.available && <LevelReport report={lvl.report} />}
             <div className="flex flex-wrap gap-3">
+              <button className="btn-primary" onClick={() => router.push(`/subjects/${s}/roadmap`)}>
+                {wizard ? "See my roadmap (built on your level)" : "Open my calibrated roadmap"}
+              </button>
               {wizard && (
-                <button className="btn-primary" onClick={() => router.push(`/subjects/${s}/start`)}>
-                  Continue: my summary
+                <button className="btn-secondary" onClick={() => router.push(`/subjects/${s}/start`)}>
+                  My path &amp; course summary
                 </button>
               )}
-              <button className={wizard ? "btn-secondary" : "btn-primary"} onClick={() => router.push(`/subjects/${s}/roadmap`)}>
-                Open my calibrated roadmap
-              </button>
               <button className="btn-secondary" disabled={busy} onClick={() => handleStart(true)}>
                 Retake check
               </button>

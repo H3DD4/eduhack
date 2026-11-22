@@ -25,6 +25,7 @@ from thinkfirst.modules.tutor.llm import models as _llm  # noqa: F401
 from thinkfirst.platform.billing import models as _billing  # noqa: F401
 from thinkfirst.platform.identity import models as _identity  # noqa: F401
 from thinkfirst.platform.workspaces import models as _ws  # noqa: F401
+from tutor.store import sqlalchemy_store as _tutor_tracks  # noqa: F401
 
 # Tables holding private student data (owner_id). Postgres RLS policies are created for each.
 PRIVATE_TABLES = [
@@ -38,4 +39,8 @@ PRIVATE_TABLES = [
     "identity.student_consents", "memory.behavioral_events", "memory.behavior_indicators",
     "learner_model.skill_mastery", "learner_model.initial_profiles",
     "assessment.diagnostic_items", "assessment.diagnostic_sessions",
+    *[f"tutor_tracks.{c}" for c in (
+        "tracks", "documents", "chunks", "concepts", "fingerprints", "web_sources", "artifacts", "attempts",
+        "learner", "tutorial", "runs", "plans",
+    )],
 ]

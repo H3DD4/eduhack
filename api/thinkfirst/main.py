@@ -14,9 +14,11 @@ from thinkfirst.modules.adaptation.router import router as adaptation_router
 from thinkfirst.modules.diagnostic.router import router as diagnostic_router
 from thinkfirst.modules.tutor.explain_back.router import router as explain_router
 from thinkfirst.modules.tutor.router import router as tutor_router
+from thinkfirst.modules.tutor.tracks.router import router as tutor_tracks_router
 from thinkfirst.platform.billing.router import router as billing_router
 from thinkfirst.platform.identity.router import router as identity_router
 from thinkfirst.platform.workspaces.router import router as workspaces_router
+from tutor.api.router import install_error_handler
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 CSRF_EXEMPT = {"/api/auth/google/callback"}
@@ -24,6 +26,10 @@ CSRF_EXEMPT = {"/api/auth/google/callback"}
 
 def create_app() -> FastAPI:
     setup_logging()
+    from thinkfirst.config import get_settings
+    if get_settings().database_url.startswith("sqlite"):
+        from thinkfirst.seed import ensure_schema
+        ensure_schema()
     app = FastAPI(title="ThinkFirst API", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.add_exception_handler(AppError, app_error_handler)  # type: ignore[arg-type]
 
@@ -38,8 +44,9 @@ def create_app() -> FastAPI:
 
     app.add_middleware(RequestLogMiddleware)
     for r in (core_router, identity_router, billing_router, workspaces_router, tutor_router, explain_router, learner_router,
-              diagnostic_router, adaptation_router):
+              diagnostic_router, adaptation_router, tutor_tracks_router):
         app.include_router(r, prefix="/api")
+    install_error_handler(app)
 
     return app
 

@@ -8,7 +8,9 @@ Two modes:
   * topic — no files. One detailed section per roadmap concept, grounded in openly licensed sources (RAG hybrid).
 
 Depth follows the learner's level (placement test or "start from scratch" = beginner) and goal (exam / explore);
-known concepts get a quick recap, gap concepts the fullest explanation. One job per section (parallel-safe).
+known concepts get a quick recap, gap concepts the fullest explanation. One job per section, run ONE AFTER ANOTHER
+(each finished section queues the next): parallel calls hit the AI provider's rate limit. A failed section is retried
+once automatically, then shown with "Try again".
 Without an AI service, course mode falls back to a labelled extract of the student's own pages (nothing invented);
 topic mode is unavailable.
 """
@@ -131,12 +133,14 @@ def ensure(db: Session, owner_id: str, subject_id: str, *, regenerate: bool = Fa
                             mode=mode, status="building")
     db.add(summary)
     db.flush()
+    first = None
     for no, sec in enumerate(plan, 1):
         row = CourseSummarySection(owner_id=owner_id, summary_id=summary.id, no=no, title=sec["title"][:300],
                                    pages=sec["pages"], concept_keys=sec["concept_keys"], focus=sec["focus"])
         db.add(row)
         db.flush()
-        jobs.enqueue(db, JOB, owner_id, {"section_id": row.id}, idempotency_key=f"summary:{row.id}")
+        first = first or row
+    jobs.enqueue(db, JOB, owner_id, {"section_id": first.id, "chain": True}, idempotency_key=f"summary:{first.id}")
     db.flush()
     _refresh_status(db, summary)
     return summary
@@ -204,13 +208,21 @@ def _section_job(db: Session, job: jobs.Job) -> dict:
     learner = placement.learner_context(db, summary.owner_id, summary.subject_id)
     learner["level"] = summary.level
     learner["this_section"] = {"known": sec.focus == "known", "focus": sec.focus == "focus"}
+    write = _write_course_section if summary.mode == "course" else _write_topic_section
     try:
-        if summary.mode == "course":
-            result = _write_course_section(db, summary, sec, learner)
-        else:
-            result = _write_topic_section(db, summary, sec, learner)
+        result = write(db, summary, sec, learner)
+        if sec.status == "failed" and sec.error_code not in ("SOURCE_REMOVED", "CONCEPT_REMOVED"):
+            result = write(db, summary, sec, learner)  # one automatic retry (rate limit / malformed answer)
     finally:
         _refresh_status(db, summary)
+        if job.payload.get("chain") and not summary.superseded:
+            nxt = db.scalar(select(CourseSummarySection).where(CourseSummarySection.summary_id == summary.id,
+                                                               CourseSummarySection.status == "pending",
+                                                               CourseSummarySection.no > sec.no)
+                            .order_by(CourseSummarySection.no))
+            if nxt is not None:
+                jobs.enqueue(db, JOB, summary.owner_id, {"section_id": nxt.id, "chain": True},
+                             idempotency_key=f"summary:{nxt.id}")
     return result
 
 
@@ -224,8 +236,9 @@ def _write_course_section(db: Session, summary: CourseSummary, sec: CourseSummar
         return {"status": "failed"}
     required = {p.page_no for p in pages if p.text.strip()}
     payload = [{"page": p.page_no, "text": p.text[:PAGE_CHARS]} for p in pages]
-    res = llm.run(db, "summarize_course_section", {"course_pages": payload, "learner": learner,
-                                                   "file": src.filename}, owner_id=summary.owner_id, purpose="course_summary")
+    style, profile = _course_style(db, summary)
+    res = llm.run(db, "summarize_course_section", {"course_pages": payload, "learner": learner, "file": src.filename,
+                                                   "course_style": style}, owner_id=summary.owner_id, purpose="course_summary")
     if res.status != "ok" or not res.output:
         sec.status, sec.error_code = "failed", res.error_code or "AI_FAILED"
         return {"status": "failed"}
@@ -244,12 +257,53 @@ def _write_course_section(db: Session, summary: CourseSummary, sec: CourseSummar
             covered |= _covered(rep.output) & required
             missing = sorted(required - covered)
     sec.title = (str(res.output.get("title") or "").strip() or sec.title)[:300]
+    if profile is not None and not res.simulated:
+        content = _likeness_gate(db, summary, sec, content, profile, payload, learner, src.filename, style)
     sec.content = {**content, "label": EXTRACT_LABEL if res.simulated else res.label, "provider": res.provider}
     sec.missing_pages = missing
     sec.status = "incomplete" if missing else "ready"
     sec.error_code = None
     summary.label, summary.provider = (EXTRACT_LABEL if res.simulated else res.label), res.provider
     return {"status": sec.status, "missing": missing}
+
+
+def _course_style(db: Session, summary: CourseSummary):
+    """Course fingerprint (vocabulary, notation, exercise verbs) + likeness profile from the student's own chunks."""
+    try:
+        from thinkfirst.modules.tutor.packs import _subject_course_profile
+        from tutor.fingerprint import style_summary
+
+        fp, profile = _subject_course_profile(db, summary.owner_id, summary.subject_id, "")
+        return style_summary(fp), profile
+    except Exception:  # noqa: BLE001 - fingerprinting is an enhancement, never a blocker
+        return {}, None
+
+
+def _section_text(content: dict) -> str:
+    parts = [b.get("text", "") + " " + " ".join(b.get("items") or []) for b in content.get("blocks", [])]
+    parts += [k["term"] + " " + k["definition"] for k in content.get("key_terms", [])]
+    return " ".join(parts)
+
+
+def _likeness_gate(db: Session, summary: CourseSummary, sec, content: dict, profile, payload: list, learner: dict,
+                   filename: str, style: dict) -> dict:
+    """Agentic Tutor quality loop: score how much the section reads like the student's course (vocabulary,
+    notation). >= 0.70 shown as is; below, rewritten once naming the weak components; the better version is kept."""
+    from tutor.similarity import decision, likeness, weak_components
+
+    score, detail = likeness({"kind": "lesson", "sections": [{"title": sec.title, "body": _section_text(content)}]}, profile)
+    if decision(score) != "show":  # < 0.70: regenerate once naming the weak parts (Agentic Tutor thresholds)
+        weak = ", ".join(weak_components(detail)) or "vocabulary"
+        res = llm.run(db, "summarize_course_section", {
+            "course_pages": payload, "learner": learner, "file": filename, "course_style": style,
+            "note": f"The previous draft did not read like this course (weak: {weak}). Use the course's own terms and "
+                    "notation from the pages and course_style."}, owner_id=summary.owner_id, purpose="course_summary_style")
+        if res.status == "ok" and res.output:
+            retry = _clean(res.output)
+            s2, d2 = likeness({"kind": "lesson", "sections": [{"title": sec.title, "body": _section_text(retry)}]}, profile)
+            if s2 > score and len(_covered(res.output)) >= len(_covered({"blocks": content["blocks"]})):
+                content, score, detail = retry, s2, d2
+    return {**content, "likeness": score, "likeness_detail": detail}
 
 
 def _write_topic_section(db: Session, summary: CourseSummary, sec: CourseSummarySection, learner: dict) -> dict:

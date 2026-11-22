@@ -108,7 +108,8 @@ export default function SummaryPage() {
                   <h3 className="flex-1 text-section !text-[1.3rem]">{x.title}</h3>
                   <span className={`rounded-pill border-2 border-ink px-3 py-1 text-meta ${FOCUS[x.focus]?.cls ?? ""}`}>{FOCUS[x.focus]?.label}</span>
                 </div>
-                {x.pages.length > 0 && <p className="text-meta text-ink-muted">{x.filename} · pages {x.pages.join(", ")}</p>}
+                {x.pages.length > 0 && <p className="text-meta text-ink-muted">{x.filename} · pages {x.pages.join(", ")}
+                  {x.content?.likeness != null && <span className="ml-2 pill" title="How much this section reads like your course: vocabulary, notation, style">Matches your course: {Math.round(100 * x.content.likeness)}%</span>}</p>}
                 {x.status === "pending" && <Skeleton lines={4} label="Writing this section" />}
                 {x.status === "failed" && (
                   <ErrorBox message="This section could not be written."><button className="btn-primary" onClick={() => retry(x.id)}>Try again</button></ErrorBox>

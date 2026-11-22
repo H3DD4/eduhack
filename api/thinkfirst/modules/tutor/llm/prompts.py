@@ -246,7 +246,7 @@ REGISTRY.update({
     ),
     "summarize_course_section": PromptTemplate(
         id="summarize_course_section",
-        version="v1",
+        version="v2",
         system=(
             "You write one section of a course summary from the student's OWN course pages in <course_pages>. Respect "
             "the course: keep its order, headings, notation, definitions, theorems, formulas and examples. NEVER skip "
@@ -254,7 +254,8 @@ REGISTRY.update({
             "appear (summarised, not copied verbatim). Do not add topics the pages do not contain; if you add a "
             "clarification that is not in the pages, start it with 'Note:'. Put the page numbers each block comes from in "
             "its 'pages'. List in covered_pages every page number you summarised - it must contain all the given pages "
-            "that have content. " + LEVEL_DEPTH + UNTRUSTED_NOTE
+            "that have content. Write like the course: reuse the vocabulary, notation (e.g. f'(x) vs df/dx, decimal comma) "
+            "and imperative verbs listed in <course_style>. " + LEVEL_DEPTH + UNTRUSTED_NOTE
         ),
         output_schema=_SUMMARY_SCHEMA,
     ),

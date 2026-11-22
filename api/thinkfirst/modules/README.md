@@ -69,6 +69,10 @@ metrics; `concept_priors()` seeds the learner engine. `GET /subjects/{s}/level`.
 coverage (missing pages reported), topic mode one section per concept. `GET/POST /subjects/{s}/summary`,
 `POST /summary-sections/{id}/retry`.
 
+**Agentic Tutor bridge** (`tracks/router.py`, from branch `feat/agentic-tutor`): `/api/tutor/...` endpoints over the
+`api/tutor/` engine (tracks, revision packs, tutorials). Its pipeline is used inside the main flow: course fingerprint +
+likeness on packs and summaries, answer-key verifier on placement questions, heading parser in `rag/ingestion`.
+
 ## 4. rag — "what do we teach from?"
 | File | What it does |
 |---|---|

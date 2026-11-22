@@ -65,7 +65,8 @@ def journey(db: Session, owner_id: str, subject_id: str) -> dict:
     else:
         st = pl["state"]
         detail, action = {
-            "preparing": ("Writing and double-checking your test questions…", None),
+            "preparing": ("Your test questions are being written and double-checked (about 30–60 s). Open the test: it "
+                          "starts as soon as they are ready.", {"label": "Open the level test", "href": f"{base}/diagnostic"}),
             "ready": ("About 5–12 multiple-choice questions, ~5 minutes. No help, no penalty for “I don't know”.",
                       {"label": "Take the level test", "href": f"{base}/diagnostic"}),
             "in_progress": (f"{pl['answered']} answered so far.", {"label": "Continue the test", "href": f"{base}/diagnostic"}),

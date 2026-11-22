@@ -36,12 +36,15 @@ export default function Setup() {
   const processing = data?.sources?.some((x: any) => ["queued", "extracting"].includes(x.status)) || (data?.subject?.status === "processing" && data?.topic_job?.status !== "failed")
     || ["queued", "running"].includes(data?.topic_job?.status);
   const [customize, setCustomize] = useState(false);
+  const [peek, setPeek] = useState(false);
   const topicMode = data?.subject?.origin === "guided_topic" && !customize;
+  const testFirst = data?.subject?.prior_knowledge === "some";
+  const afterConfirm = () => (testFirst ? `/subjects/${s}/diagnostic` : data?.subject?.prior_knowledge ? `/subjects/${s}/start` : `/subjects/${s}/roadmap`);
   const startLearning = async () => {
     setBusy(true);
     try {
       await api(`/subjects/${s}/start`, { method: "POST" });
-      router.push(data?.subject?.prior_knowledge ? `/subjects/${s}/start` : `/subjects/${s}/roadmap`);
+      router.push(afterConfirm());
     } catch (e: any) { setErr(e.message); setBusy(false); }
   };
 
@@ -69,7 +72,7 @@ export default function Setup() {
       await api(`/subjects/${s}/scope/confirm`, { method: "POST", json: {
         graph_revision_id: data.proposal.id,
         edits: Object.entries(edits).map(([concept_id, e]) => ({ concept_id, ...e })) } });
-      router.push(data?.subject?.prior_knowledge ? `/subjects/${s}/start` : `/subjects/${s}/roadmap`);
+      router.push(afterConfirm());
     } catch (e: any) {
       setErr(e.message);
       setBusy(false);
@@ -102,7 +105,20 @@ export default function Setup() {
                 <Link className="btn-secondary" href="/subjects/new">Try another topic</Link>
               </ErrorBox>
             )}
-            {data.proposal && (
+            {data.proposal && testFirst && !peek && (
+              <div className="hero p-6 md:p-8" data-testid="test-first">
+                <div className="relative z-10 max-w-2xl space-y-3">
+                  <span className="badge">🧪 Step 2 of 4 · your level</span>
+                  <h2 className="text-page-compact">{concepts.length} concepts found. Now, a quick level test</h2>
+                  <p className="muted">5–12 multiple-choice questions (~5 min). Your roadmap is then shown built on your level: what you already know, where you start, what is left.</p>
+                  <div className="flex flex-wrap gap-3">
+                    <button className="btn-primary" onClick={startLearning} disabled={busy}>{busy ? "Starting…" : "Continue to the level test"}</button>
+                    <button className="btn-secondary" onClick={() => setPeek(true)}>Look at the concepts first</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {data.proposal && (!testFirst || peek) && (
               <>
                 <p className="text-meta"><span className="pill text-help bg-help-surface">✦ {data.proposal.label}</span></p>
                 <div className="grid gap-4 lg:grid-cols-2">
@@ -118,7 +134,7 @@ export default function Setup() {
                   ))}
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  <button className="btn-primary" onClick={startLearning} disabled={busy}>{busy ? "Starting…" : "Start learning"}</button>
+                  <button className="btn-primary" onClick={startLearning} disabled={busy}>{busy ? "Starting…" : testFirst ? "Continue to the level test" : "Start learning"}</button>
                   <button className="btn-secondary" onClick={() => setCustomize(true)}>Customize roadmap</button>
                 </div>
               </>
@@ -180,6 +196,7 @@ export default function Setup() {
                     })}
                   </ol>
                   <button className="btn-primary mt-6" onClick={confirm} disabled={busy || processing}>{busy ? "Confirming…" : "Confirm scope"}</button>
+                  {testFirst && <p className="mt-2 text-meta text-ink-muted">Next: the level test, then your roadmap built on your level.</p>}
                 </>
               )}
             </section>

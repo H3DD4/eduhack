@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ CACHE_TTL_S = 600
 # Circuit breaker: a provider that just timed out / rate-limited / errored is skipped for a while.
 _cooldown_until: dict[str, float] = {}
 COOLDOWN_S = 300
+RATE_LIMIT_COOLDOWN_S = 30
 
 # Rough public list-price estimates in USD per 1M tokens (labelled estimates, used for metadata only).
 _PRICES = {"anthropic": (4.0, 20.0), "gemini": (0.30, 2.50), "groq": (0.15, 0.60), "ollama": (0.0, 0.0), "demo": (0.0, 0.0)}
@@ -139,6 +141,31 @@ def _call_anthropic(template: PromptTemplate, user_text: str) -> tuple[dict, int
     return json.loads(text), resp.usage.input_tokens, resp.usage.output_tokens
 
 
+_BAD_ESCAPE = re.compile(r'\\(?!["\\/bfnrtu])')
+# LaTeX commands that start with a valid JSON escape letter (\frac -> form feed + "rac", \theta -> tab + "heta"):
+# a single, unescaped backslash before them is a LaTeX backslash, never a control character in our content.
+_LATEX_ESCAPE = re.compile(r'(?<!\\)\\(?=(?:frac|beta|binom|bar|bf|bmod|big|neq|ne\b|nabla|nu\b|newline|not|right|rho|'
+                           r'rangle|rightarrow|theta|times|tau|text|tan|top|to\b|tfrac|uparrow|underline|union|forall)'
+                           r'(?![a-z]))')
+
+
+def _loads(raw: str) -> dict:
+    """Parse model JSON robustly: code fences, prose around the object, and LaTeX such as \\alpha or \\sqrt (not valid
+    JSON escapes) are repaired instead of failing the whole call."""
+    text = _LATEX_ESCAPE.sub(r"\\\\", _strip_json_fence(raw or ""))
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    a, b = text.find("{"), text.rfind("}")
+    if a >= 0 and b > a:
+        text = text[a:b + 1]
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return json.loads(_BAD_ESCAPE.sub(r"\\\\", text))
+
+
 def _strip_json_fence(raw: str) -> str:
     s = raw.strip()
     if s.startswith("```"):
@@ -173,15 +200,15 @@ def _call_gemini(template: PromptTemplate, user_text: str) -> tuple[dict, int, i
                 params={"key": s.gemini_api_key or ""},
                 json=body,
                 headers={"x-goog-api-key": s.gemini_api_key or ""},
-                timeout=60 if idx == 0 else 25,
+                timeout=40 if idx == 0 else 25,
             )
         except httpx.TimeoutException as exc:
             last_err = _ProviderError("TIMEOUT")
             if idx + 1 < len(models):
                 continue
             raise last_err from exc
-        if r.status_code in (429, 503) and idx + 1 < len(models):
-            last_err = _ProviderError("RATE_LIMITED" if r.status_code == 429 else "HTTP_503")
+        if r.status_code in (404, 429, 503) and idx + 1 < len(models):
+            last_err = _ProviderError({404: "HTTP_404", 429: "RATE_LIMITED"}.get(r.status_code, "HTTP_503"))
             continue
         if r.status_code == 429:
             raise _ProviderError("RATE_LIMITED")
@@ -194,7 +221,7 @@ def _call_gemini(template: PromptTemplate, user_text: str) -> tuple[dict, int, i
         text = "".join(p.get("text", "") for p in cands[0].get("content", {}).get("parts", []) if not p.get("thought"))
         usage = data.get("usageMetadata", {})
         return (
-            json.loads(_strip_json_fence(text)),
+            _loads(text),
             int(usage.get("promptTokenCount", 0)),
             int(usage.get("candidatesTokenCount", 0)),
         )
@@ -205,8 +232,16 @@ def _call_groq(template: PromptTemplate, user_text: str) -> tuple[dict, int, int
     s = get_settings()
     body = {"model": s.groq_model, "temperature": 0, "response_format": {"type": "json_object"},
             "messages": [{"role": "system", "content": template.system}, {"role": "user", "content": user_text}]}
-    r = httpx.post("https://api.groq.com/openai/v1/chat/completions", json=body,
-                   headers={"Authorization": f"Bearer {s.groq_api_key or ''}"}, timeout=60)
+    for attempt in range(4):  # rate limits on Groq are per minute: wait a few seconds and retry
+        r = httpx.post("https://api.groq.com/openai/v1/chat/completions", json=body,
+                       headers={"Authorization": f"Bearer {s.groq_api_key or ''}"}, timeout=60)
+        if r.status_code != 429 or attempt == 3:
+            break
+        try:
+            wait = float(r.headers.get("retry-after", "0"))
+        except ValueError:
+            wait = 0.0
+        time.sleep(min(max(wait, 2.0 * (attempt + 1)), 10.0))
     if r.status_code == 429:
         raise _ProviderError("RATE_LIMITED")
     if r.status_code >= 400:
@@ -216,7 +251,7 @@ def _call_groq(template: PromptTemplate, user_text: str) -> tuple[dict, int, int
     if choice.get("finish_reason") == "content_filter":
         raise _Refused()
     usage = data.get("usage", {})
-    return (json.loads(choice.get("message", {}).get("content") or ""), int(usage.get("prompt_tokens", 0)),
+    return (_loads(choice.get("message", {}).get("content") or ""), int(usage.get("prompt_tokens", 0)),
             int(usage.get("completion_tokens", 0)))
 
 
@@ -293,7 +328,7 @@ def run(db: Session, prompt_id: str, variables: dict[str, Any], *, owner_id: str
         if result.status == "ok":
             return result
         if result.status == "error" and p != "demo":
-            _cooldown_until[p] = time.time() + COOLDOWN_S
+            _cooldown_until[p] = time.time() + (RATE_LIMIT_COOLDOWN_S if result.error_code == "RATE_LIMITED" else COOLDOWN_S)
     # If every real provider failed with quota/capacity errors (HTTP_402, HTTP_503, RATE_LIMITED, TIMEOUT)
     # in demo_mode, fall back to the explicitly labeled demo adapter (simulated=True) so local testing continues uninterrupted.
     if (

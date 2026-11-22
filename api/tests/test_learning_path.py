@@ -241,3 +241,45 @@ def test_topic_summary_needs_ai_and_docx_upload_builds_a_roadmap(student):
         db.commit()
     resp = student.post(f"/api/subjects/{sid}/summary", json={})
     assert resp.status_code == 422 and "AI service" in resp.json()["error"]["message"]
+
+
+def test_roadmap_is_locked_until_the_level_test_then_marked_with_its_result(student, fake_ai):
+    sid = _start(student, "some")
+    rm = student.get(f"/api/subjects/{sid}/roadmap").json()
+    assert rm["placement"]["required"] is True and rm["level"] is None
+    st = student.post(f"/api/subjects/{sid}/diagnostic/start", json={}).json()
+    with dbmod.session_factory()() as db:
+        key = {r.item_key: r for r in db.scalars(select(DiagnosticItemRow).where(DiagnosticItemRow.subject_id == sid)).all()}
+    while st["status"] == "active":
+        item = st["current_item"]
+        right = next(o["id"] for o in key[item["id"]].options if o["misconception"] is None)
+        st = student.post(f"/api/subjects/{sid}/diagnostic/answer",
+                          json={"item_id": item["id"], "option_id": right, "duration_ms": 15000}).json()
+    rm = student.get(f"/api/subjects/{sid}/roadmap").json()
+    assert rm["placement"]["required"] is False and rm["level"]["basis"] == "placement_test"
+    marks = [c["placement_status"] for u in rm["units"] for c in u["concepts"]]
+    assert marks and all(m in ("known", "partly") for m in marks) and rm["level"]["to_learn"] == 0  # all answers right
+
+
+def test_journey_level_step_is_always_clickable_while_questions_are_written(student, fake_ai, monkeypatch):
+    from thinkfirst.modules.diagnostic import placement
+
+    sid = _start(student, "some")
+    monkeypatch.setattr(placement, "status", lambda db, o, s: {"state": "preparing", "answered": 0, "generated_items": 0,
+                                                              "verified_items": 0, "job_id": "j", "uses_ai_questions": True})
+    from thinkfirst.modules.adaptation import journey
+
+    monkeypatch.setattr(journey.placement, "status", placement.status)
+    j = student.get(f"/api/subjects/{sid}/journey").json()
+    lvl = next(s for s in j["steps"] if s["key"] == "level")
+    assert lvl["state"] == "current" and lvl["action"]["href"].endswith("/diagnostic")
+
+
+def test_model_json_is_repaired_not_dropped():
+    from thinkfirst.modules.tutor.llm.service import _loads
+
+    bs = "\\"
+    raw = "```json\n{\"a\": \"$" + bs + "alpha + " + bs + "frac{1}{2}$, " + bs + "theta\", \"n\": \"x" + bs + "ny\"}\n```"
+    out = _loads(raw)
+    assert out == {"a": "$" + bs + "alpha + " + bs + "frac{1}{2}$, " + bs + "theta", "n": "x\ny"}
+    assert _loads('Sure: {"k": [1]} done') == {"k": [1]}

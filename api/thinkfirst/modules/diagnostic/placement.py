@@ -94,6 +94,14 @@ def _shuffled(item: dict) -> list[dict]:
     return [{"id": "abcd"[i], **o} for i, o in enumerate(opts)]
 
 
+def _key_ok(item: dict) -> bool:
+    from tutor.agents.verify import check_answer_key
+
+    problems, _ = check_answer_key({"kind": "qcm", "stem": item["question"],
+                                    "options": [{"text": o["text"], "correct": o["misconception"] is None} for o in item["options"]]})
+    return not problems
+
+
 def _other_provider(first: str) -> str | None:
     return next((p for p in llm.provider_chain() if p not in (first, "demo")), None)
 
@@ -143,6 +151,7 @@ def _placement_job(db: Session, job: jobs.Job) -> dict:
         if res.status != "ok" or not res.output:
             continue
         items = [dict(it, options=_shuffled(it)) for it in _clean(res.output.get("items"), set(by_key))]
+        items = [it for it in items if _key_ok(it)]  # Agentic Tutor verifier: one correct, >= 3 distinct options
         agree = _cross_check(db, owner, items, res.provider)
         counter: dict[str, int] = {}
         for i, it in enumerate(items):
