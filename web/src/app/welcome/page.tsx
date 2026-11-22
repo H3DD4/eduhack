@@ -5,6 +5,7 @@ import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
 import { Logo, Mark } from "@/components/Logo";
 import { DemoLabel } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
+import { AvatarSpeakerProvider, useAvatarSpeaker } from "@/components/avatar/AvatarSpeakerContext";
 
 function safeReturn(r: string | null) {
   return r && r.startsWith("/") && !r.startsWith("//") ? r : null; // only same-site paths
@@ -13,6 +14,7 @@ function safeReturn(r: string | null) {
 function Welcome() {
   const router = useRouter();
   const params = useSearchParams();
+  const { startVoiceGuide } = useAvatarSpeaker();
   const [mode, setMode] = useState<"signin" | "create">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,6 +24,7 @@ function Welcome() {
   const summaryRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { api("/auth/providers").then(setProviders).catch(() => {}); }, []);
+  useEffect(() => { if (params.get("mode") === "create") setMode("create"); }, [params]);
   useEffect(() => { if (error) summaryRef.current?.focus(); }, [error]);
 
   const submit = async (e: FormEvent) => {
@@ -51,6 +54,11 @@ function Welcome() {
           <Logo size={40} />
           <h1 id="pitch-h" className="text-page md:text-hero">AI that makes you <span className="hl">think</span>, not AI that <span className="hl-dark">thinks for you</span></h1>
           <p className="max-w-xl text-problem text-ink-muted">One AI professor per subject, a roadmap built from your own courses, and a planner around your exam dates. You do the thinking.</p>
+          <div className="max-w-xl rounded-card border-2 border-ink bg-surface p-4">
+            <p className="font-semibold">Blind or prefer spoken guidance?</p>
+            <p className="mt-1 text-meta text-ink-muted">The avatar can read the next steps and help you navigate. The microphone stays off until you press its button; your browser may process speech recognition.</p>
+            <button type="button" className="btn-secondary mt-3" onClick={startVoiceGuide}>Start spoken guide</button>
+          </div>
           <ul className="grid max-w-xl gap-3 sm:grid-cols-3">
             {["Try first", "Help one step at a time", "Proof you can do it alone"].map((t, i) => (
               <li key={t} className="game-card flex items-center gap-3 p-3">
@@ -71,7 +79,7 @@ function Welcome() {
               <a href={`#${error.field === "password" ? "password" : "email"}`} className="underline">{error.message}</a>
             </div>
           )}
-          <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
+          <form data-voice-form="auth" onSubmit={submit} className="mt-6 space-y-4" noValidate>
             <div>
               <label htmlFor="email" className="label">Email</label>
               <input id="email" className="field" type="email" autoComplete="email" required value={email}
@@ -89,7 +97,7 @@ function Welcome() {
             </button>
           </form>
           <div className="mt-4">
-            <button className="btn-link" onClick={() => { setMode(mode === "signin" ? "create" : "signin"); setError(null); }}>
+            <button type="button" data-voice-action={mode === "signin" ? "create-account" : "sign-in"} className="btn-link" onClick={() => { setMode(mode === "signin" ? "create" : "signin"); setError(null); }}>
               {mode === "signin" ? "Create an account instead" : "I already have an account"}
             </button>
           </div>
@@ -124,5 +132,5 @@ function Welcome() {
 }
 
 export default function Page() {
-  return <Suspense><Welcome /></Suspense>;
+  return <Suspense><AvatarSpeakerProvider><Welcome /></AvatarSpeakerProvider></Suspense>;
 }

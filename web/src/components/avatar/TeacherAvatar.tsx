@@ -36,6 +36,7 @@ export interface TeacherAvatarProps {
   speechRate?: number;
   speechInputEnabled?: boolean;
   strictSpeechLanguage?: boolean;
+  speechGuideMode?: boolean;
 }
 
 const CANNED_ANSWERS: [RegExp, string][] = [
@@ -71,6 +72,7 @@ export function TeacherAvatar({
   speechRate = 1,
   speechInputEnabled = true,
   strictSpeechLanguage = false,
+  speechGuideMode = false,
 }: TeacherAvatarProps) {
   const defaultPersona = useMemo<PersonaId>(
     () => initialPersona || (hint ? personaFor(hint) : "khwarizmi"),
@@ -604,8 +606,9 @@ export function TeacherAvatar({
       <div className="card !overflow-hidden !p-0">
         <div
           ref={stageRef}
-          tabIndex={0}
-          role="application"
+          tabIndex={speechGuideMode ? -1 : 0}
+          role={speechGuideMode ? undefined : "application"}
+          aria-hidden={speechGuideMode || undefined}
           aria-label={`3D Teacher ${PERSONAS[persona].name}. Space to play or pause, arrow keys for sentences, R to replay.`}
           onClick={onStageClick}
           onKeyDown={onStageKeyDown}

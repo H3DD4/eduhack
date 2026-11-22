@@ -40,6 +40,8 @@ The profile is private and is not included in teacher/class views.
 
 The controls reuse the existing browser read-aloud experience and provide editable browser dictation in supported
 answer fields. Browser speech availability varies; browser dictation may be processed by the browser provider.
+Blind students can optionally start the avatar's voice guide on the sign-in page. It reads route guidance, supports
+common voice navigation and form commands, and keeps the microphone off until **Ask by voice** is pressed.
 See [ACCESSIBILITY.md](./ACCESSIBILITY.md) for privacy details and current limitations (including unsupported
 exam timing, Arabic UI/diacritics, and teacher dashboard features).
 

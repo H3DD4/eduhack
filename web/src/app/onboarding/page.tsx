@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Logo } from "@/components/Logo";
 import { api } from "@/lib/api";
+import { useAvatarSpeaker } from "@/components/avatar/AvatarSpeakerContext";
 
 type Choice = { v: string; t: string; d?: string };
 const GOALS: Choice[] = [
@@ -55,6 +56,7 @@ function Options({ name, options, value, onPick }: { name: string; options: Choi
 
 export default function Onboarding() {
   const router = useRouter();
+  const { speakWithAvatar, voiceGuideEnabled } = useAvatarSpeaker();
   const [step, setStep] = useState(0);
   const [goal, setGoal] = useState("unsure");
   const [level, setLevel] = useState("university");
@@ -93,6 +95,23 @@ export default function Onboarding() {
   };
   const next = () => (last ? save() : setStep((s) => Math.min(STEPS.length - 1, s + 1)));
   const back = () => setStep((s) => Math.max(0, s - 1));
+
+  useEffect(() => {
+    if (!voiceGuideEnabled) return;
+    const prompts: Record<(typeof STEPS)[number], string> = {
+      goal: "What brings you here? Choose understand my course, prepare for an exam, learn on my own, or not sure. Say choose and the option, then next.",
+      level: "Where are you studying? Choose high school, university, or professional self-study. Say choose and the option, then next.",
+      confidence: "How confident do you feel? Choose a confidence level from lost to very confident, then say next.",
+      slot: "When is your first session? Choose one of the suggested times, or type another time. Say next when ready.",
+      input: "How do you like to answer? Choose typing or speaking, then say next.",
+      privacy: "Review optional learning behavior tracking and birth year. Essential data is always on. Say next when ready.",
+      deal: "This is the learning agreement. Say choose I'm in to accept, then say save and start to continue.",
+    };
+    speakWithAvatar(`Question ${step + 1} of ${STEPS.length}. ${prompts[key]} Press Ask by voice when you are ready; the microphone is not always listening.`, {
+      title: "Voice guide",
+      hint: "voice navigation",
+    });
+  }, [key, speakWithAvatar, step, voiceGuideEnabled]);
 
   // Number keys pick an option on choice screens; Enter moves on.
   useEffect(() => {

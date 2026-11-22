@@ -34,6 +34,23 @@ policy. No teacher/class dashboard is present in this build, and the profile is 
 - The existing concept roadmap remains the visual concept map. The “Hide the timer” preference hides the optional
   timer in the current focus sheet.
 
+## Voice guide for blind students
+
+On the sign-in page, choose **Start spoken guide**. The avatar asks whether to enable spoken guidance; the choice is
+optional and stored only in this browser. Once enabled, the guide reads short next-step instructions as pages open
+and is available from the **Voice guide** button throughout the signed-in app.
+
+The guide understands common navigation and form commands such as “add a subject,” “learn biology,” “focus email,”
+“type …,” “choose …,” “next,” “back,” and “help.” It can guide sign-in, onboarding, subject creation, and session
+setup. It asks for confirmation before submitting app-changing actions. Passwords must be typed or filled by a
+password manager and are never entered from speech. Course files must be selected manually.
+
+The microphone is not always on. The student must press **Ask by voice** for each spoken command; browser speech
+recognition may process audio through the browser's speech service. Browser speech and voice availability varies.
+Because browsers can block audio autoplay, the student must start the guide with its button; it cannot reliably
+begin speaking on its own. This is a command-based guide, not a general-purpose AI agent, and unsupported requests
+are not performed.
+
 ## Privacy and known limits
 
 - The accessibility flag is off by default; API endpoints are unavailable while it is off. An inactive profile
