@@ -3,6 +3,7 @@ import React, { createContext, ReactNode, useCallback, useContext, useState } fr
 import { api, newKey } from "@/lib/api";
 import { personaFor, PersonaId, PERSONAS } from "./rig";
 import { TeacherAvatar } from "./TeacherAvatar";
+import { AccessibilityProfile, isAccessibilityActive } from "@/lib/accessibility/profile";
 
 interface AvatarSpeakerState {
   open: boolean;
@@ -22,6 +23,7 @@ interface AvatarSpeakerContextValue {
   ) => void;
   closeAvatar: () => void;
   openAvatarStudio: (opts?: { hint?: string; subjectId?: string }) => void;
+  profile?: AccessibilityProfile | null;
 }
 
 const AvatarSpeakerCtx = createContext<AvatarSpeakerContextValue>({
@@ -50,7 +52,8 @@ export function SpeakButton({
   label?: string;
   className?: string;
 }) {
-  const { speakWithAvatar } = useAvatarSpeaker();
+  const { speakWithAvatar, profile } = useAvatarSpeaker();
+  if (isAccessibilityActive(profile) && profile?.tts_enabled === false) return null;
   if (!text || !text.trim()) return null;
   const p = personaFor(hint || title || text);
   return (
@@ -65,7 +68,7 @@ export function SpeakButton({
   );
 }
 
-export function AvatarSpeakerProvider({ children }: { children: ReactNode }) {
+export function AvatarSpeakerProvider({ children, profile = null }: { children: ReactNode; profile?: AccessibilityProfile | null }) {
   const [state, setState] = useState<AvatarSpeakerState>({
     open: false,
     text: "",
@@ -129,7 +132,7 @@ export function AvatarSpeakerProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <AvatarSpeakerCtx.Provider value={{ speakWithAvatar, closeAvatar, openAvatarStudio }}>
+    <AvatarSpeakerCtx.Provider value={{ speakWithAvatar, closeAvatar, openAvatarStudio, profile }}>
       {children}
       {state.open && (
         <aside
@@ -168,6 +171,10 @@ export function AvatarSpeakerProvider({ children }: { children: ReactNode }) {
             initialPersona={state.persona}
             compact={!expanded}
             autoPlay={Boolean(state.text)}
+            speechLanguage={profile?.speech_language || "en-GB"}
+            speechRate={profile?.tts_speed || 1}
+            strictSpeechLanguage={isAccessibilityActive(profile)}
+            speechInputEnabled={!isAccessibilityActive(profile) || Boolean(profile?.stt_enabled)}
             stageHeight={expanded ? 380 : 225}
             onAsk={handleAsk}
           />

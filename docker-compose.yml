@@ -38,6 +38,8 @@ services:
     env_file:
       - path: api/.env
         required: false
+      - path: .env
+        required: false
     environment: &apienv
       # migrations run as the owner; the app runs as the non-superuser RLS role
       MIGRATION_DATABASE_URL: postgresql+psycopg://thinkfirst:thinkfirst_dev@postgres:5432/thinkfirst
@@ -65,6 +67,8 @@ services:
     build: { context: ., dockerfile: api/Dockerfile }
     env_file:
       - path: api/.env
+        required: false
+      - path: .env
         required: false
     environment: *apienv
     working_dir: /app

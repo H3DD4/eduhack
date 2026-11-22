@@ -566,8 +566,15 @@ def submit_answer(db: Session, owner_id: str, task_id: str, answer: str, expecte
         a = assessment.save_symbolic(db, attempt, result)
     else:
         a = assessment.grade_generated(db, attempt, question=t.prompt, expected=t.solution.get("expected", ""),
-                                       kind=t.kind, answer=answer, transfer=t.stage == "transfer")
+                                       kind=t.kind, answer=answer, transfer=t.stage == "transfer",
+                                       subject_id=t.subject_id)
         result = a
+    if t.kind == "short_answer":
+        from thinkfirst.modules.accessibility import matching
+        from thinkfirst.modules.accessibility import service as accessibility
+
+        if accessibility.profile_active(db, owner_id):
+            attempt.spelling_error = matching.likely_spelling_variation(answer, t.solution.get("expected", ""))
     t.revision += 1
     if t.stage == "practice":
         if result.outcome == "demonstrated":

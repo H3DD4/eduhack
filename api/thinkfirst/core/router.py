@@ -27,7 +27,8 @@ def capabilities():
 
     return {**llm.capabilities(), "rag": rag.stack(), "diagnostic": diagnostic.stack(), "demo_mode": s.demo_mode,
             "job_mode": s.job_mode, "storage": s.storage_backend, "paper_mode": False, "code_sandbox": False,
-            "exams": False, "planner": "review dates only", "notifications": False}
+            "exams": False, "planner": "review dates only", "notifications": False,
+            "accessibility_module": s.enable_accessibility_module}
 
 
 @router.get("/demo/course-file")

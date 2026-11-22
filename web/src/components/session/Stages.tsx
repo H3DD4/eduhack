@@ -2,6 +2,9 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, newKey } from "@/lib/api";
+import { useMe } from "@/components/AppShell";
+import { SpeechInput } from "@/lib/accessibility/SpeechInput";
+import { isAccessibilityActive } from "@/lib/accessibility/profile";
 import { SpeakButton } from "../avatar/AvatarSpeakerContext";
 import { TeacherAvatar } from "../avatar/TeacherAvatar";
 import { Dialog, ErrorBox, LiveRegion, MathText, OriginLabel } from "../ui";
@@ -34,6 +37,7 @@ export function RecallStage({ view, draft, onDraft, onContinue }: { view: any; d
 /* ---------- learn (UC11): cited chunk + different example + retrieval; reading = exposure only ---------- */
 export function LearnStage({ view, subjectId, sessionId, draft, onDraft, onContinue }:
   { view: any; subjectId: string; sessionId: string; draft: string; onDraft: (t: string) => void; onContinue: () => void }) {
+  const { accessibilityProfile } = useMe();
   const [showAvatar, setShowAvatar] = useState(true);
   const lesson = view.lesson;
   if (lesson?.locked) return <p>Lesson content is unavailable while an independent application is in progress.</p>;
@@ -88,6 +92,10 @@ export function LearnStage({ view, subjectId, sessionId, draft, onDraft, onConti
           title={view.concept?.title}
           compact
           stageHeight={270}
+          speechLanguage={accessibilityProfile?.speech_language || "en-GB"}
+          speechRate={accessibilityProfile?.tts_speed || 1}
+          strictSpeechLanguage={isAccessibilityActive(accessibilityProfile)}
+          speechInputEnabled={!isAccessibilityActive(accessibilityProfile) || Boolean(accessibilityProfile?.stt_enabled)}
           onAsk={askLessonProfessor}
         />
       )}
@@ -145,6 +153,7 @@ export function LearnStage({ view, subjectId, sessionId, draft, onDraft, onConti
 export function PracticeStage({ view, subjectId, draft, onDraft, onHelp, onReload, onContinue }:
   { view: any; subjectId: string; draft: string; onDraft: (t: string) => void; onHelp: () => void; onReload: () => void; onContinue: () => void }) {
   const t = view.current_task;
+  const { accessibilityProfile } = useMe();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [announce, setAnnounce] = useState("");
@@ -222,10 +231,17 @@ export function PracticeStage({ view, subjectId, draft, onDraft, onHelp, onReloa
           <div>
             <label htmlFor="ans" className="label">Your answer</label>
             {t.kind === "short_answer" ? (
-              <textarea id="ans" className="field !min-h-[100px] text-problem" value={draft} onChange={(e) => onDraft(e.target.value)} aria-describedby="ans-hint" />
+              <textarea id="ans" className="field !min-h-[100px] text-problem" value={draft} onChange={(e) => onDraft(e.target.value)}
+                spellCheck={isAccessibilityActive(accessibilityProfile) ? Boolean(accessibilityProfile?.spelling_suggestions) : undefined}
+                aria-describedby="ans-hint" />
             ) : (
               <input id="ans" className="field text-problem" value={draft} onChange={(e) => onDraft(e.target.value)} autoComplete="off" inputMode="text"
+                spellCheck={isAccessibilityActive(accessibilityProfile) ? Boolean(accessibilityProfile?.spelling_suggestions) : undefined}
                 aria-describedby="ans-hint" />
+            )}
+            {isAccessibilityActive(accessibilityProfile) && accessibilityProfile?.stt_enabled && (
+              <SpeechInput language={accessibilityProfile.speech_language || "en-GB"}
+                onTranscript={(text) => onDraft([draft.trim(), text].filter(Boolean).join(" "))} />
             )}
             <p id="ans-hint" className="mt-1 text-meta text-ink-muted">{t.kind === "short_answer" ? "Answer in your own words (any language)." : "Type an expression, for example 3x + 5."} No minimum effort needed before asking for help.</p>
           </div>
@@ -273,6 +289,7 @@ export function TransferStage({ view, subjectId, draft, onDraft, onReload, onRef
   { view: any; subjectId: string; draft: string; onDraft: (t: string) => void; onReload: () => void; onReflect: () => void;
     onHelp: () => void; onPauseCapture?: () => void }) {
   const t = view.current_task;
+  const { accessibilityProfile } = useMe();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [convert, setConvert] = useState(false);
@@ -358,7 +375,12 @@ export function TransferStage({ view, subjectId, draft, onDraft, onReload, onRef
         <>
           <div>
             <label htmlFor="tr-ans" className="label">{t.kind === "equivalent_forms" ? "Your answer (write both forms)" : "Your answer"}</label>
-            <textarea id="tr-ans" className="field !min-h-[90px] text-problem" value={draft} onChange={(e) => onDraft(e.target.value)} />
+            <textarea id="tr-ans" className="field !min-h-[90px] text-problem" value={draft} onChange={(e) => onDraft(e.target.value)}
+              spellCheck={isAccessibilityActive(accessibilityProfile) ? Boolean(accessibilityProfile?.spelling_suggestions) : undefined} />
+            {isAccessibilityActive(accessibilityProfile) && accessibilityProfile?.stt_enabled && (
+              <SpeechInput language={accessibilityProfile.speech_language || "en-GB"}
+                onTranscript={(text) => onDraft([draft.trim(), text].filter(Boolean).join(" "))} />
+            )}
           </div>
           {err && <ErrorBox message={err} />}
           <div className="flex flex-wrap gap-3">

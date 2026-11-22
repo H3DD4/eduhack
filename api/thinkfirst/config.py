@@ -32,6 +32,7 @@ class Settings(BaseSettings):
 
     # Demo mode shows the seeded demo credentials on A01 and enables labeled demo tools.
     demo_mode: bool = True
+    enable_accessibility_module: bool = False
 
     # AI providers. Empty key => labeled demo adapters (never silently "real").
     llm_provider: str = "auto"  # auto | demo | anthropic | gemini | groq | ollama

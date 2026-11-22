@@ -3,12 +3,16 @@
 // explicit "End this attempt and view worked solution" confirmation. Locked transfer offers conversion only.
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, newKey } from "@/lib/api";
+import { useMe } from "@/components/AppShell";
+import { SpeechInput } from "@/lib/accessibility/SpeechInput";
+import { isAccessibilityActive } from "@/lib/accessibility/profile";
 import { SpeakButton } from "../avatar/AvatarSpeakerContext";
 import { TeacherAvatar } from "../avatar/TeacherAvatar";
 import { Dialog, SimulatedLabel } from "../ui";
 
 export function ProfessorPanel({ task, subjectId, onClose, onChanged, onLocked }:
   { task: any; subjectId: string; onClose: () => void; onChanged: (r?: any) => void; onLocked: () => void }) {
+  const { accessibilityProfile } = useMe();
   const [steps, setSteps] = useState<any[]>(task?.help_events || []);
   const [confirmReveal, setConfirmReveal] = useState(false);
   const [question, setQuestion] = useState("");
@@ -83,6 +87,10 @@ export function ProfessorPanel({ task, subjectId, onClose, onChanged, onLocked }
             compact
             showPersonaPicker={false}
             stageHeight={190}
+            speechLanguage={accessibilityProfile?.speech_language || "en-GB"}
+            speechRate={accessibilityProfile?.tts_speed || 1}
+            strictSpeechLanguage={isAccessibilityActive(accessibilityProfile)}
+            speechInputEnabled={!isAccessibilityActive(accessibilityProfile) || Boolean(accessibilityProfile?.stt_enabled)}
           />
         </div>
       )}
@@ -112,7 +120,20 @@ export function ProfessorPanel({ task, subjectId, onClose, onChanged, onLocked }
       )}
       <div className="mt-6 border-t border-border pt-4">
         <label htmlFor="prof-q" className="label">Ask about this concept</label>
-        <textarea id="prof-q" className="field !min-h-[80px]" value={question} onChange={(e) => setQuestion(e.target.value)} />
+        <textarea id="prof-q" className="field !min-h-[80px]" value={question} onChange={(e) => setQuestion(e.target.value)}
+          spellCheck={isAccessibilityActive(accessibilityProfile) ? Boolean(accessibilityProfile?.spelling_suggestions) : undefined} />
+        {isAccessibilityActive(accessibilityProfile) && accessibilityProfile?.stt_enabled && (
+          <SpeechInput language={accessibilityProfile.speech_language || "en-GB"}
+            onTranscript={(text) => setQuestion((current) => [current.trim(), text].filter(Boolean).join(" "))} />
+        )}
+        {isAccessibilityActive(accessibilityProfile) && (
+          <div className="flex flex-wrap gap-2" aria-label="Tutor response options">
+            {["Could you explain that more simply?", "Could you make that shorter?", "Could you add a diagram or concept map?"].map((prompt) => (
+              <button key={prompt} type="button" className="btn-secondary !min-h-[36px] !px-3 text-meta"
+                onClick={() => setQuestion(prompt)}>{prompt.includes("simply") ? "Simpler" : prompt.includes("shorter") ? "Shorter" : "With a diagram"}</button>
+            ))}
+          </div>
+        )}
         <button className="btn-secondary mt-2" onClick={askProfessor} disabled={busy || !question.trim()}>Ask</button>
         <p className="mt-1 text-meta text-ink-muted">Uses 1 unit of your allowance. The help steps above are free.</p>
         {answer && (

@@ -31,6 +31,18 @@ security, Redis + ARQ worker, SeaweedFS (S3-compatible), the API (http://localho
 Optional AI keys go in `api/.env` (copy `.env.example`; git-ignored). Without keys, every AI step uses clearly
 labeled demo adapters ("Simulated assessment", "Demo transcription"). Algebra checks are real (SymPy) either way.
 
+## Optional reading aids
+
+The reading-aid module is off by default. To enable it locally, set `ENABLE_ACCESSIBILITY_MODULE=true` in
+`api/.env`, restart the API, then open **Settings → Reading aids** and review the privacy consent before enabling
+the profile. Students can change each available aid, turn the profile off, export it, or delete it at any time.
+The profile is private and is not included in teacher/class views.
+
+The controls reuse the existing browser read-aloud experience and provide editable browser dictation in supported
+answer fields. Browser speech availability varies; browser dictation may be processed by the browser provider.
+See [ACCESSIBILITY.md](./ACCESSIBILITY.md) for privacy details and current limitations (including unsupported
+exam timing, Arabic UI/diacritics, and teacher dashboard features).
+
 ## Run without Docker (fast local dev)
 
 On Windows, double-click or run **`run-thinkfirst.bat`** (or `start.bat`, or `run-thinkfirst.bat --docker` for the Docker stack). It seeds the database and calibrated diagnostic item bank, syncs the `branding/` assets, installs missing packages, starts the FastAPI backend on port `8000` and the Next.js frontend on port `3000`, and opens `http://localhost:3000`.

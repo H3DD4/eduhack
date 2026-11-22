@@ -11,6 +11,7 @@ import {
   readPalette,
   visemeFor,
 } from "./rig";
+import { browserSTTProvider, browserTTSProvider } from "@/lib/accessibility/profile";
 
 export interface TeacherAvatarProps {
   /** Any system-generated text or directed script to transcribe into the speaking 3D avatar. */
@@ -31,6 +32,10 @@ export interface TeacherAvatarProps {
   title?: string;
   /** Stage height in CSS pixels. */
   stageHeight?: number;
+  speechLanguage?: string;
+  speechRate?: number;
+  speechInputEnabled?: boolean;
+  strictSpeechLanguage?: boolean;
 }
 
 const CANNED_ANSWERS: [RegExp, string][] = [
@@ -62,6 +67,10 @@ export function TeacherAvatar({
   onAsk,
   title,
   stageHeight,
+  speechLanguage = "en-GB",
+  speechRate = 1,
+  speechInputEnabled = true,
+  strictSpeechLanguage = false,
 }: TeacherAvatarProps) {
   const defaultPersona = useMemo<PersonaId>(
     () => initialPersona || (hint ? personaFor(hint) : "khwarizmi"),
@@ -72,7 +81,7 @@ export function TeacherAvatar({
   const [customScript, setCustomScript] = useState<string | null>(null);
   const [idx, setIdx] = useState<number>(0);
   const [playing, setPlaying] = useState<boolean>(false);
-  const [rate, setRate] = useState<number>(1);
+  const [rate, setRate] = useState<number>(speechRate);
   const [voiceOn, setVoiceOn] = useState<boolean>(true);
   const [showTranscript, setShowTranscript] = useState<boolean>(false);
   const [board, setBoard] = useState<string | null>(null);
@@ -81,6 +90,7 @@ export function TeacherAvatar({
   const [asking, setAsking] = useState<boolean>(false);
   const [listening, setListening] = useState<boolean>(false);
   const [hasSpeechRec, setHasSpeechRec] = useState<boolean>(false);
+  const [speechMessage, setSpeechMessage] = useState("");
   const [webglOk, setWebglOk] = useState<boolean>(true);
 
   useEffect(() => {
@@ -133,6 +143,9 @@ export function TeacherAvatar({
   useEffect(() => {
     rateRef.current = rate;
   }, [rate]);
+  useEffect(() => {
+    setRate(speechRate);
+  }, [speechRate]);
 
   useEffect(() => {
     voiceOnRef.current = voiceOn;
@@ -141,9 +154,9 @@ export function TeacherAvatar({
   useEffect(() => {
     if (typeof window !== "undefined") {
       const w = window as any;
-      setHasSpeechRec(Boolean(w.SpeechRecognition || w.webkitSpeechRecognition));
+      setHasSpeechRec(speechInputEnabled && Boolean(w.SpeechRecognition || w.webkitSpeechRecognition));
     }
-  }, []);
+  }, [speechInputEnabled]);
 
   // Mount Three.js scene
   useEffect(() => {
@@ -234,7 +247,7 @@ export function TeacherAvatar({
     return () => {
       tokenRef.current++;
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
+        browserTTSProvider.cancel();
       }
       renderer.setAnimationLoop(null);
       window.removeEventListener("pointermove", onPointerMove);
@@ -265,20 +278,24 @@ export function TeacherAvatar({
   const pickVoice = useCallback(() => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
     const voices = window.speechSynthesis.getVoices();
-    const en = voices.filter((v) => v.lang.startsWith("en"));
+    const language = speechLanguage.split("-")[0].toLowerCase();
+    const matching = voices.filter((v) => v.lang.toLowerCase().startsWith(language));
+    if (!strictSpeechLanguage) {
+      const english = voices.filter((v) => v.lang.startsWith("en"));
+      return english.find((x) => /male|daniel|george|arthur|thomas|ryan|guy/i.test(x.name)) ||
+        english.find((x) => x.lang === "en-GB") || english[0] || voices[0] || null;
+    }
     return (
-      en.find((x) => /male|daniel|george|arthur|thomas|ryan|guy/i.test(x.name)) ||
-      en.find((x) => x.lang === "en-GB") ||
-      en[0] ||
-      voices[0] ||
+      matching.find((x) => x.lang.toLowerCase() === speechLanguage.toLowerCase()) ||
+      matching[0] ||
       null
     );
-  }, []);
+  }, [speechLanguage, strictSpeechLanguage]);
 
   const pause = useCallback(() => {
     tokenRef.current++;
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
+      browserTTSProvider.cancel();
     }
     speakingRef.current = false;
     setPlaying(false);
@@ -289,7 +306,7 @@ export function TeacherAvatar({
     (list: Segment[], i: number, chain: boolean) => {
       const my = ++tokenRef.current;
       const canSpeak = typeof window !== "undefined" && "speechSynthesis" in window;
-      if (canSpeak) window.speechSynthesis.cancel();
+      if (canSpeak) browserTTSProvider.cancel();
       const rig = rigRef.current;
 
       if (i >= list.length || list.length === 0) {
@@ -335,9 +352,15 @@ export function TeacherAvatar({
 
       segRef.current = { text: s.text, at: performance.now(), last: 0 };
       if (voiceOnRef.current && canSpeak) {
+        if (strictSpeechLanguage && !browserTTSProvider.hasVoice(speechLanguage)) {
+          setSpeechMessage(`No ${speechLanguage} voice is available on this device. The text remains visible to read.`);
+          next();
+          return;
+        }
+        setSpeechMessage("");
         try {
           const u = new SpeechSynthesisUtterance(s.text);
-          u.lang = "en-GB";
+          u.lang = speechLanguage;
           const v = pickVoice();
           if (v) u.voice = v;
           u.rate = 0.96 * rateRef.current;
@@ -358,9 +381,14 @@ export function TeacherAvatar({
             setWordAt(e.charIndex);
           };
           u.onend = next;
-          u.onerror = next;
+          u.onerror = () => {
+            if (strictSpeechLanguage) {
+              setSpeechMessage(`The ${speechLanguage} voice could not read this text. The text remains visible to read.`);
+            }
+            next();
+          };
           speakingRef.current = true;
-          window.speechSynthesis.speak(u);
+          browserTTSProvider.speak(u);
           return;
         } catch {
           // Fall through to silent word ticker if speechSynthesis throws
@@ -392,7 +420,7 @@ export function TeacherAvatar({
       };
       tick();
     },
-    [persona, pickVoice]
+    [persona, pickVoice, speechLanguage, strictSpeechLanguage]
   );
 
   const play = useCallback(() => {
@@ -497,23 +525,33 @@ export function TeacherAvatar({
   };
 
   const startMic = () => {
-    if (typeof window === "undefined") return;
-    const w = window as any;
-    const Rec = w.SpeechRecognition || w.webkitSpeechRecognition;
-    if (!Rec) return;
-    const r = new Rec();
-    r.lang = "en-GB";
+    const r = browserSTTProvider.create();
+    if (!r) {
+      setSpeechMessage("Dictation is not available in this browser. You can type your question.");
+      return;
+    }
+    r.lang = speechLanguage;
     r.interimResults = true;
-    setListening(true);
-    r.onresult = (e: any) => {
-      const transcript = Array.from(e.results)
-        .map((x: any) => x[0].transcript)
-        .join("");
-      setQuestion(transcript);
+    if (!strictSpeechLanguage) setListening(true);
+    r.onstart = () => {
+      setListening(true);
+      if (strictSpeechLanguage) setSpeechMessage("Listening. Review and edit the transcript before asking.");
+    };
+    r.onresult = (event) => {
+      const transcript = Array.from(event.results).map((result) => result[0]?.transcript || "").join("");
+      if (transcript) setQuestion(transcript);
     };
     r.onend = () => setListening(false);
-    r.onerror = () => setListening(false);
-    r.start();
+    r.onerror = () => {
+      setListening(false);
+      if (strictSpeechLanguage) setSpeechMessage("Dictation stopped. You can type or edit your question.");
+    };
+    try {
+      r.start();
+    } catch {
+      setListening(false);
+      setSpeechMessage("Dictation could not start. You can type your question.");
+    }
   };
 
   const currentSeg = queue[Math.min(idx, Math.max(0, queue.length - 1))];
@@ -628,6 +666,7 @@ export function TeacherAvatar({
             )
           )}
         </p>
+        {speechMessage && <p className="px-4 text-meta text-ink-muted" role="status" aria-live="polite">{speechMessage}</p>}
 
         <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
           <button

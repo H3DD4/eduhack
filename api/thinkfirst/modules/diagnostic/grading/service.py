@@ -173,7 +173,7 @@ _OUTCOME = {"demonstrated": "demonstrated", "partial": "partial", "absent": "not
 
 
 def grade_generated(db: Session, attempt: Attempt, *, question: str, expected: str, kind: str, answer: str,
-                    transfer: bool) -> Assessment:
+                    transfer: bool, subject_id: str | None = None) -> Assessment:
     """Generated practice/transfer items: SymPy when both sides are expressions, otherwise the LLM grader.
     Uncertain or invalid output => unscored (never zero). Feedback never reveals the reference answer."""
     existing = assessment_for_attempt(db, attempt.id)
@@ -189,7 +189,7 @@ def grade_generated(db: Session, attempt: Attempt, *, question: str, expected: s
             feedback = "Your answer is equivalent to the expected result." if ok else "Not equivalent yet — check each step."
     if verdict is None:
         res = llm.run(db, "grade_short_answer", {"question": question, "reference_answer": expected, "student_answer": answer},
-                      owner_id=attempt.owner_id, purpose="short_answer_grading")
+                      owner_id=attempt.owner_id, purpose="short_answer_grading", subject_id=subject_id)
         method, label = ("simulated" if res.simulated else "ai"), res.label
         out = res.output if res.status == "ok" else None
         verdict = (out or {}).get("verdict") if (out or {}).get("verdict") in _VERDICT_STATUS else "uncertain"

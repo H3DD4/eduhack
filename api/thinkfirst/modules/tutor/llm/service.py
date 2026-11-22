@@ -15,7 +15,7 @@ import json
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import httpx
@@ -284,12 +284,18 @@ class _ProviderError(Exception):
 
 
 def run(db: Session, prompt_id: str, variables: dict[str, Any], *, owner_id: str | None, purpose: str,
-        provider: str | None = None) -> GatewayResult:
+        provider: str | None = None, subject_id: str | None = None) -> GatewayResult:
     """Try the provider chain in order (e.g. Ollama, Gemini, Groq). One metadata log row per provider attempt."""
+    system_suffix = None
+    if prompt_id in {"professor_scaffold", "generate_concept_pack", "generate_topic_scope", "grade_short_answer"}:
+        from thinkfirst.modules.accessibility import service as accessibility
+
+        system_suffix = accessibility.prompt_rules(db, owner_id, prompt_id=prompt_id, subject_id=subject_id)
     chain = [provider] if provider else provider_chain()
     result: GatewayResult | None = None
     for p in chain:
-        result = _run_one(db, prompt_id, variables, owner_id=owner_id, purpose=purpose, provider=p)
+        result = _run_one(db, prompt_id, variables, owner_id=owner_id, purpose=purpose, provider=p,
+                          system_suffix=system_suffix)
         if result.status == "ok":
             return result
         if result.status == "error" and p != "demo":
@@ -304,14 +310,17 @@ def run(db: Session, prompt_id: str, variables: dict[str, Any], *, owner_id: str
         and get_settings().demo_mode
         and prompt_id in _demo_adapters
     ):
-        return _run_one(db, prompt_id, variables, owner_id=owner_id, purpose=purpose, provider="demo")
+        return _run_one(db, prompt_id, variables, owner_id=owner_id, purpose=purpose, provider="demo",
+                        system_suffix=system_suffix)
     assert result is not None
     return result
 
 
 def _run_one(db: Session, prompt_id: str, variables: dict[str, Any], *, owner_id: str | None, purpose: str,
-             provider: str) -> GatewayResult:
+             provider: str, system_suffix: str | None = None) -> GatewayResult:
     template = REGISTRY[prompt_id]
+    if system_suffix:
+        template = replace(template, system=f"{template.system}\n\n{system_suffix}")
     s = get_settings()
     model = {
         "anthropic": s.anthropic_model,
@@ -319,7 +328,7 @@ def _run_one(db: Session, prompt_id: str, variables: dict[str, Any], *, owner_id
         "groq": s.groq_model,
         "ollama": s.ollama_model,
     }.get(provider, "demo-heuristic-v1")
-    key = hashlib.sha256(json.dumps([owner_id, prompt_id, template.version, provider, variables],
+    key = hashlib.sha256(json.dumps([owner_id, prompt_id, template.version, provider, system_suffix, variables],
                                     sort_keys=True, default=str).encode()).hexdigest()
     entry = LLMCallLog(owner_id=owner_id, purpose=purpose, prompt_id=prompt_id, prompt_version=template.version,
                        provider=provider, model=model, status="ok", tokens_in=0, tokens_out=0,

@@ -40,6 +40,7 @@ class Attempt(Base, OwnedMixin, TimestampMixin):
     response_text: Mapped[str | None] = mapped_column(Text, nullable=True)  # confirmed text only
     supplement_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     transcript_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    spelling_error: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     mode_at_submit: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(16), default="submitted")  # submitted | committed | deleted
     idempotency_key: Mapped[str] = mapped_column(String(200), unique=True)

@@ -5,6 +5,9 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, newKey, pollJob, sha256Hex } from "@/lib/api";
 import { ctas, statusCopy } from "@/lib/recorder/machine";
 import { useRecorder } from "@/lib/recorder/useRecorder";
+import { useMe } from "@/components/AppShell";
+import { SpeechInput } from "@/lib/accessibility/SpeechInput";
+import { isAccessibilityActive } from "@/lib/accessibility/profile";
 import { ErrorBox, LiveRegion, SimulatedLabel } from "../ui";
 import { RubricFeedback } from "./RubricFeedback";
 
@@ -78,6 +81,7 @@ function Recorder({ taskId, caps, retention, setRetention, onUse, onUseText }:
 export function ExplainFlow({ task, subjectId, caps, defaultInput, draft, onDraft, onAssessed, next, retentionPref }:
   { task: any; subjectId: string; caps: any; defaultInput: "text" | "voice"; draft: string; onDraft: (t: string) => void;
     onAssessed: () => void; next: (a: any) => ReactNode; retentionPref: string }) {
+  const { accessibilityProfile } = useMe();
   const [mode, setMode] = useState<"voice" | "text">(defaultInput);
   const [phase, setPhase] = useState<Phase>(task.last_assessment ? "feedback" : "compose");
   const [version, setVersion] = useState<any>(null);
@@ -244,7 +248,12 @@ export function ExplainFlow({ task, subjectId, caps, defaultInput, draft, onDraf
             <div className="space-y-3">
               <label htmlFor="ex-text" className="label">Your explanation</label>
               <textarea id="ex-text" className="field !min-h-[160px]" value={draft} onChange={(e) => onDraft(e.target.value)}
+                spellCheck={isAccessibilityActive(accessibilityProfile) ? Boolean(accessibilityProfile?.spelling_suggestions) : undefined}
                 aria-describedby="ex-hint" />
+              {isAccessibilityActive(accessibilityProfile) && accessibilityProfile?.stt_enabled && (
+                <SpeechInput language={accessibilityProfile.speech_language || "en-GB"}
+                  onTranscript={(text) => onDraft([draft.trim(), text].filter(Boolean).join(" "))} />
+              )}
               <p id="ex-hint" className="text-meta text-ink-muted">Typing uses the same concept rubric. Short is fine; length earns nothing. Mixing French, English or Arabic is fine.</p>
               <div className="flex flex-wrap gap-3">
                 <button className="btn-primary" onClick={reviewText} disabled={!draft.trim()}>Review text</button>

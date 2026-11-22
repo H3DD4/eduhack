@@ -57,19 +57,54 @@ html {
 body {
   background: var(--canvas);
   color: var(--ink);
-  font-family: "Acme", "Noto Sans Arabic", system-ui, sans-serif;
+  font-family: var(--reading-font, "Acme"), "Noto Sans Arabic", system-ui, sans-serif;
   font-synthesis: none;
   /* Acme has one weight: never fake bold */
-  font-size: 1.0625rem;
-  line-height: 1.65rem;
+  font-size: var(--reading-font-size, 1.0625rem);
+  line-height: var(--reading-line-height, 1.65rem);
+  letter-spacing: var(--reading-letter-spacing, 0);
+  word-spacing: var(--reading-word-spacing, 0);
   font-weight: 400;
 }
 
 [lang="ar"] body,
 body[dir="rtl"] {
-  font-family: "Noto Sans Arabic", "Acme", system-ui, sans-serif;
-  font-size: 1.0625rem;
-  line-height: 1.8125rem;
+  font-family: var(--reading-font, "Noto Sans Arabic"), "Acme", system-ui, sans-serif;
+  font-size: var(--reading-font-size, 1.0625rem);
+  line-height: var(--reading-line-height, 1.8125rem);
+}
+
+html[data-reading-aids="active"] main :is(p, li, label, input, textarea, select, .text-problem) {
+  font-family: var(--reading-font), "Noto Sans Arabic", system-ui, sans-serif;
+  font-size: var(--reading-font-size, 1.0625rem);
+  line-height: var(--reading-line-height, 1.75);
+  letter-spacing: var(--reading-letter-spacing, 0);
+  word-spacing: var(--reading-word-spacing, 0);
+}
+
+html[data-reading-aids="active"] main :is(p, li, .text-problem) {
+  max-width: var(--reading-line-width, 70ch);
+  text-align: left;
+}
+
+html[data-reading-aids="active"] main :is(p, li, h1, h2, h3, label, button, input, textarea, select, a, summary) {
+  font-family: var(--reading-font), "Noto Sans Arabic", system-ui, sans-serif;
+  letter-spacing: var(--reading-letter-spacing, 0);
+  word-spacing: var(--reading-word-spacing, 0);
+}
+
+html[data-reading-focus="ruler"] body::after,
+html[data-reading-focus="dim"] body::after {
+  content: "";
+  position: fixed;
+  z-index: 20;
+  top: var(--reading-ruler-y, 45vh);
+  left: 0;
+  right: 0;
+  height: 2.2em;
+  pointer-events: none;
+  border-block: 1px solid var(--focus);
+  box-shadow: 0 0 0 9999px rgb(15 23 42 / 28%);
 }
 
 h1,
