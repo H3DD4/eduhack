@@ -121,7 +121,7 @@ export default function Today() {
         <section aria-labelledby="courses-h">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h2 id="courses-h" className="text-section">Your subjects</h2>
-            <Link href="/subjects/new" className="btn-secondary">+ Upload course files</Link>
+            <Link href="/subjects/new" className="btn-secondary">+ Start learning something</Link>
           </div>
           {subjects.loading && !subjects.data && <Skeleton />}
           {subjects.data?.subjects?.length === 0 && <p className="text-ink-muted">No subjects yet. Start one above.</p>}

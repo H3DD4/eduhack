@@ -13,7 +13,7 @@ export default function globalSetup() {
     try { fs.rmSync(f, { force: true, maxRetries: 3, retryDelay: 300 }); } catch { /* in use: reset below */ }
   }
   const env = { ...process.env, DATABASE_URL: `sqlite:///${db.replace(/\\/g, "/")}`, LOCAL_STORAGE_DIR: path.join(apiDir, ".storage-e2e"),
-    LLM_PROVIDER: "demo", STT_PROVIDER: "demo", JOB_MODE: "inline", GEMINI_API_KEY: "", GROQ_API_KEY: "", RESOURCE_DISCOVERY: "false" };
+    LLM_PROVIDER: "demo", STT_PROVIDER: "demo", JOB_MODE: "inline", GEMINI_API_KEY: "", GROQ_API_KEY: "", RESOURCE_DISCOVERY: "false", EMBEDDING_PROVIDER: "demo" };
   execFileSync(py, ["-m", "thinkfirst.seed", "--reset"], { cwd: apiDir, env, stdio: "inherit" });
   const out = path.join(__dirname, ".fixtures");
   fs.mkdirSync(out, { recursive: true });

@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -34,6 +36,18 @@ from thinkfirst.platform.identity import service as identity
 MISCONCEPTION_DETECTED = events.MISCONCEPTION_DETECTED
 
 # Verified curated bank for standard algebra concepts (with misconception distractors & Elo difficulties).
+# The curated items belong to the algebra course ONLY. Every AI roadmap also uses keys like "1.1" or "F1", so the
+# concept title must match too (a Java "2.1 Classes and Objects" must never receive "Solve for x").
+CURATED_TITLES = {
+    "F1": "order of operations", "1.1": "variables and terms", "1.2": "the distributive property",
+    "1.3": "combining like terms", "2.1": "solving one-step equations", "2.2": "solving two-step equations",
+}
+
+
+def is_curated(concept) -> bool:
+    return CURATED_TITLES.get(concept.key) == (concept.title or "").strip().lower()
+
+
 CURATED_BANK: dict[str, list[dict]] = {
     "F1": [
         {
@@ -375,9 +389,9 @@ def ensure_knowledge_space(db: Session, owner_id: str, subject_id: str) -> tuple
     ai_skills = {sk for r in rows if r.generated and r.verified for sk in (r.skills or [])}
     created = False
     for idx, c in enumerate(concepts):
-        if c.key in ai_skills and c.key not in CURATED_BANK:
-            continue
-        templates = CURATED_BANK.get(c.key) or _generic_items_for_concept(db, owner_id, subject_id, c, idx)
+        if ai_skills and not is_curated(c):
+            continue  # real questions exist for this subject: no filler questions
+        templates = CURATED_BANK[c.key] if is_curated(c) else _generic_items_for_concept(db, owner_id, subject_id, c, idx)
         for tmpl in templates:
             ikey = f"{c.key}_{tmpl['suffix']}"
             if ikey in existing_keys:
@@ -414,13 +428,18 @@ def ensure_knowledge_space(db: Session, owner_id: str, subject_id: str) -> tuple
         db.flush()
 
     valid_skills = {s.id for s in graph.skills}
+    curated_keys = {c.key for c in concepts if is_curated(c)}
+    curated_prompts = {t["prompt"] for items in CURATED_BANK.values() for t in items}
     domain_items: list[Item] = []
     for r in rows:
         sk = tuple(s for s in (r.skills or []) if s in valid_skills)
         if not sk:
             continue
-        if not r.generated and r.kind == "mcq" and any(s in ai_skills for s in sk) and not any(s in CURATED_BANK for s in sk):
-            continue  # placeholder superseded by verified AI questions
+        if not r.generated and not any(s in curated_keys for s in sk):
+            if r.prompt in curated_prompts:
+                continue  # algebra question attached to a non-algebra concept by an older version
+            if ai_skills and r.kind == "mcq":
+                continue  # filler question superseded by verified AI questions
         misc_map = {str(opt["id"]): str(opt["misconception"]) for opt in (r.options or []) if opt.get("misconception")}
         domain_items.append(Item(
             id=r.item_key,
@@ -518,7 +537,9 @@ def _item_public(row: DiagnosticItemRow, step_no: int, max_items: int = 12) -> d
         "prompt": row.prompt,
         "kind": row.kind,
         "expression": row.expression,
-        "options": [{"id": o["id"], "text": o["text"]} for o in (row.options or [])],
+        # stable shuffle: the stored order often has the right answer first
+        "options": sorted(({"id": o["id"], "text": o["text"]} for o in (row.options or [])),
+                          key=lambda o: hashlib.sha1(f"{row.id}:{o['id']}".encode()).hexdigest()),
         "typical_ms": row.typical_ms,
         "source_page": row.source_page,
         "step_no": step_no,
@@ -661,7 +682,7 @@ def start_diagnostic(db: Session, owner_id: str, subject_id: str, *, restart: bo
         DiagnosticSessionRow.subject_id == subject_id,
     ).order_by(DiagnosticSessionRow.created_at.desc()))
 
-    if sess is None or restart or sess.status == "skipped":
+    if sess is None or restart or sess.status in ("skipped", "invalid"):
         theta0 = _student_starting_theta(db, owner_id)
         sess = DiagnosticSessionRow(
             owner_id=owner_id, subject_id=subject_id, status="active",
@@ -822,6 +843,8 @@ def diagnostic_overview(db: Session, owner_id: str, subject_id: str) -> dict:
         DiagnosticSessionRow.owner_id == owner_id,
         DiagnosticSessionRow.subject_id == subject_id,
     ).order_by(DiagnosticSessionRow.created_at.desc()))
+    if sess is not None and sess.status == "invalid":
+        sess = None  # discarded test (wrong questions): start again
     state = start_diagnostic(db, owner_id, subject_id) if sess and sess.status == "active" else (
         {"session_id": sess.id, "status": sess.status, "current_item": None,
          "n_answered": len(sess.answers or []), "profile": sess.profile}

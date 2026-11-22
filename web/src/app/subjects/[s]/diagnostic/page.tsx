@@ -39,10 +39,10 @@ export default function Diagnostic() {
   const loadLevel = () => api(`/subjects/${s}/level`).then(setLvl).catch(() => undefined);
   const wizard = lvl && lvl.placement.state !== "not_needed";
   const preparing = lvl?.placement.state === "preparing";
-  useEffect(() => { loadLevel(); }, [s]);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { api(`/subjects/${s}/placement/prepare`, { method: "POST" }).catch(() => undefined).finally(loadLevel); }, [s]);  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!preparing) return;
-    const id = setInterval(loadLevel, 2000);
+    const id = setInterval(() => { api(`/subjects/${s}/placement/prepare`, { method: "POST" }).catch(() => undefined).finally(loadLevel); }, 4000);
     return () => clearInterval(id);
   }, [preparing]);  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (session?.status === "completed") loadLevel(); }, [session?.status]);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -166,10 +166,15 @@ export default function Diagnostic() {
 
         {loading && <p className="text-meta text-ink-muted">Loading knowledge space…</p>}
 
+        {lvl?.placement.discarded_test && session?.status !== "active" && (
+          <p role="status" className="rounded-control border-2 border-ink bg-help-surface p-3">
+            Your earlier test on this subject was discarded: because of a bug it asked algebra questions instead of questions about this subject. Please take it again.
+          </p>
+        )}
         {preparing && (
           <div className="hero p-6" aria-busy="true"><div className="relative z-10 space-y-1">
             <p className="text-section !text-[1.25rem]">Writing your test questions…</p>
-            <p className="muted">Three questions per concept (easy, medium, hard), each checked by a second, independent AI pass. Usually under a minute.</p>
+            <p className="muted">Three questions per concept (easy, medium, hard), each checked by a second, independent AI pass. {lvl.placement.questions_target ? `${lvl.placement.verified_items} of about ${lvl.placement.questions_target} ready. ` : ""}Usually 1–3 minutes; you can leave and come back.</p>
           </div></div>
         )}
 
@@ -231,7 +236,7 @@ export default function Diagnostic() {
                 <p className="label !mb-0">2. Your answer</p>
                 <SpeakButton text={item.prompt} title={`Question ${item.step_no}`} subjectId={s} label="Speak question" />
               </div>
-              <p className="font-mono text-problem"><MathText text={item.prompt} /></p>
+              <div className="whitespace-pre-wrap text-problem"><MathText text={item.prompt} /></div>
               {item.options && item.options.length > 0 && (
                 <div className="space-y-2">
                   {item.options.map((opt: any) => (
@@ -250,7 +255,7 @@ export default function Diagnostic() {
                           setTypedAnswer(opt.text);
                         }}
                       />
-                      <span>{opt.text}</span>
+                      <span className="whitespace-pre-wrap"><MathText text={opt.text} /></span>
                     </label>
                   ))}
                 </div>

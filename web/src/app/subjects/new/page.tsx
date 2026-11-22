@@ -71,10 +71,12 @@ export default function StartWizard() {
     if (!topic && arr[0]) setTopic(arr[0].name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "));
   };
   const hasMaterial = material === "files" && (files.length > 0 || paste.trim().length > 0);
+  const maxBytes = limits?.max_file_bytes ?? 20 * 1048576;
+  const tooBig = files.filter((f) => f.size > maxBytes);
   const canNext = [
     !!goal,
     topic.trim().length >= 2,
-    material === "none" || (material === "files" && hasMaterial && rights),
+    material === "none" || (material === "files" && hasMaterial && rights && tooBig.length === 0),
     !!prior,
     true,
   ][step];
@@ -104,10 +106,11 @@ export default function StartWizard() {
   };
 
   return (
-    <AppShell crumbs={[{ href: "/subjects", label: "Subjects" }, { label: "Start learning" }]}>
+    <AppShell crumbs={[{ label: "Start learning" }]} back={false}>
       <div className="mx-auto max-w-prose" data-screen="C01">
         <div className="mb-6 flex items-center gap-3">
-          <button type="button" className="btn-link" onClick={back} disabled={step === 0} aria-label="Back to the previous question">← Back</button>
+          <button type="button" className="btn-secondary !min-h-[42px] !rounded-pill !px-4" onClick={step === 0 ? () => router.push("/subjects") : back}
+            aria-label={step === 0 ? "Back to Subjects" : "Back to the previous question"}>← Back</button>
           <div className="bar flex-1" role="progressbar" aria-label="Start wizard progress" aria-valuemin={1} aria-valuemax={STEPS.length} aria-valuenow={step + 1}>
             <span style={{ width: `${Math.round((100 * (step + 1)) / STEPS.length)}%` }} />
           </div>
@@ -175,7 +178,7 @@ export default function StartWizard() {
                       <ul className="mt-3 space-y-2" aria-label="Selected files">
                         {files.map((f, i) => (
                           <li key={i} className="flex flex-wrap items-center justify-between gap-2 rounded-detail border border-border px-3 py-2">
-                            <span className="break-all">{f.name} <span className="text-meta text-ink-muted">· {(f.size / 1024).toFixed(0)} KB{f.size > (limits?.max_file_bytes ?? Infinity) ? " · too large" : ""}</span></span>
+                            <span className="break-all">{f.name} <span className="text-meta text-ink-muted">· {(f.size / 1024).toFixed(0)} KB{f.size > maxBytes ? <strong className="text-review"> · too large (max {maxMb} MB)</strong> : ""}</span></span>
                             <button type="button" className="btn-link" onClick={() => setFiles(files.filter((_, j) => j !== i))}>Remove<span className="sr-only"> {f.name}</span></button>
                           </li>
                         ))}
@@ -234,6 +237,9 @@ export default function StartWizard() {
           )}
           <button type="button" className="btn-secondary" onClick={() => router.back()}>Cancel</button>
         </div>
+        {step === 2 && material === "files" && tooBig.length > 0 && (
+          <p role="alert" className="mt-2 text-review">{tooBig.map((f) => f.name).join(", ")} {tooBig.length > 1 ? "are" : "is"} larger than {maxMb} MB. Remove it, split the PDF, or paste the chapters you need.</p>
+        )}
         {step === 2 && material === "files" && !rights && <p className="mt-2 text-meta text-ink-muted">Confirm the study-use statement to continue.</p>}
       </div>
     </AppShell>

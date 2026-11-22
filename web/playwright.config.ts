@@ -9,7 +9,7 @@ const apiEnv = {
   DATABASE_URL: `sqlite:///${path.join(apiDir, "e2e.db").replace(/\\/g, "/")}`,
   LOCAL_STORAGE_DIR: path.join(apiDir, ".storage-e2e"),
   LLM_PROVIDER: "demo", STT_PROVIDER: "demo", GEMINI_API_KEY: "", GROQ_API_KEY: "", ANTHROPIC_API_KEY: "",
-  JOB_MODE: "inline", DEMO_MODE: "true", RESOURCE_DISCOVERY: "false",
+  JOB_MODE: "inline", DEMO_MODE: "true", RESOURCE_DISCOVERY: "false", EMBEDDING_PROVIDER: "demo",
 };
 
 export default defineConfig({

@@ -116,6 +116,7 @@ async def start_wizard(topic: str = Form(...), goal: str = Form("explore"), prio
 class IntentIn(BaseModel):
     prior_knowledge: str | None = None
     goal: str | None = None
+    exam_date: str | None = None
 
 
 @router.patch("/subjects/{subject_id}/intent")
@@ -130,6 +131,13 @@ def update_intent(subject_id: str, body: IntentIn, user: User = Depends(current_
         subject.prior_knowledge = body.prior_knowledge
         if body.prior_knowledge == "some" and subject.status == "ready":
             placement.start_generation(db, user.id, subject_id)
+    if body.exam_date is not None:
+        from datetime import date as _date
+
+        try:
+            subject.exam_date = _date.fromisoformat(body.exam_date) if body.exam_date else None
+        except ValueError as exc:
+            raise ValidationFailed("Use a valid exam date.", field="exam_date") from exc
     if body.goal is not None:
         if body.goal not in GOALS:
             raise ValidationFailed("Unknown goal.", field="goal")
@@ -162,12 +170,56 @@ TOPIC_SUGGESTIONS = [
 ]
 
 
+FIELD_TOPICS = [  # (words in the student's field, topics)
+    (("computer", "software", "informati", "program", "develop", "data", "cyber", "ia", "ai", "web", "network"), [
+        ("Data structures and algorithms", "Computer science", "{ }"), ("Object-oriented programming in Java", "Programming", "☕"),
+        ("SQL and relational databases", "Databases", "▦"), ("Machine learning basics", "AI", "◔"),
+        ("Computer networks: TCP/IP", "Networks", "⇄")]),
+    (("medic", "health", "nurs", "pharma", "biolog", "dent", "santé", "médecine"), [
+        ("Human anatomy: the cardiovascular system", "Medicine", "♥"), ("Cell biology", "Biology", "◉"),
+        ("Pharmacology basics", "Pharmacy", "⚕"), ("Biostatistics", "Statistics", "↗")]),
+    (("business", "manage", "market", "financ", "econom", "account", "commerce", "gestion", "audit"), [
+        ("Financial accounting basics", "Accounting", "₪"), ("Marketing strategy", "Marketing", "◎"),
+        ("Corporate finance: net present value", "Finance", "↗"), ("Supply and demand", "Economics", "⚖")]),
+    (("engineer", "mechan", "electr", "civil", "physic", "ingéni", "génie", "energy"), [
+        ("Ohm's law and simple circuits", "Electronics", "⚡"), ("Newton's laws of motion", "Physics", "⚙"),
+        ("Thermodynamics: first and second law", "Physics", "♨"), ("Control systems basics", "Engineering", "⟲")]),
+    (("math", "statist", "actuar"), [
+        ("Derivatives and the chain rule", "Calculus", "∂"), ("Matrices and linear systems", "Linear algebra", "▦"),
+        ("Conditional probability and Bayes' rule", "Probability", "◔"), ("Integrals by parts", "Calculus", "∫")]),
+    (("law", "droit", "politic"), [
+        ("Contract law basics", "Law", "§"), ("Constitutional law", "Law", "⚖"), ("International relations", "Politics", "◍")]),
+    (("design", "art", "architect", "media", "commun"), [
+        ("Colour theory", "Design", "◐"), ("UX design principles", "Design", "▣"), ("Typography basics", "Design", "A")]),
+    (("langu", "literat", "histor", "philos", "psycho", "educ", "social"), [
+        ("Cognitive psychology: memory", "Psychology", "◔"), ("The French Revolution", "History", "⚑"),
+        ("English grammar: tenses", "Languages", "A"), ("Introduction to philosophy", "Philosophy", "Φ")]),
+]
+
+
+def suggestions_for(field: str, interests: list[str]) -> list[dict]:
+    """Topics of the student's speciality first, then their interests, then general ones."""
+    words = field.lower().replace("-", " ").split()
+    mine = [{"topic": t, "area": a, "icon": i, "why": "your speciality"} for keys, topics in FIELD_TOPICS
+            if any(w == k or (len(k) > 2 and w.startswith(k)) for w in words for k in keys) for t, a, i in topics]
+    liked = [{"topic": x, "area": "Your interest", "icon": "★", "why": "your interests"} for x in interests]
+    out, seen = [], set()
+    for s in mine + liked + TOPIC_SUGGESTIONS:
+        if s["topic"].lower() not in seen:
+            seen.add(s["topic"].lower())
+            out.append(s)
+    return out[:10]
+
+
 @router.get("/topics/suggestions")
-def topic_suggestions():
+def topic_suggestions(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from thinkfirst.platform.identity import service as identity
+
+    prof = identity.learner_profile(db, user.id)
     from thinkfirst.modules.tutor.llm import service as llm
 
     caps = llm.capabilities()
-    return {"suggestions": TOPIC_SUGGESTIONS, "ai_available": not caps["simulated"], "provider_label": caps["label"]}
+    return {"suggestions": suggestions_for(prof["field"], prof["interests"]), "ai_available": not caps["simulated"], "provider_label": caps["label"]}
 
 
 class TopicIn(BaseModel):

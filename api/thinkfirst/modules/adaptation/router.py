@@ -13,6 +13,7 @@ Aggregates (anonymous):
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from thinkfirst.core.db import get_db
@@ -78,3 +79,56 @@ def select(body: SelectRequest, user: User = Depends(current_user)):
 @router.post("/engine/quality")
 def quality_stateless(body: QualityRequest, user: User = Depends(current_user)):
     return engine.quality_json(body)
+
+
+# ---- planner (calendar + priorities) and progress metrics
+
+class DeadlineIn(BaseModel):
+    title: str | None = None
+    kind: str | None = None
+    due_on: str | None = None
+    importance: int | None = None
+    subject_id: str | None = None
+    done: bool | None = None
+    notes: str | None = None
+
+
+@router.get("/planner")
+def planner_view(start: str | None = None, end: str | None = None, user: User = Depends(current_user),
+                 db: Session = Depends(get_db)):
+    from datetime import date as _d
+
+    from thinkfirst.modules.adaptation import planner
+
+    return planner.planner(db, user.id, _d.fromisoformat(start) if start else None, _d.fromisoformat(end) if end else None)
+
+
+@router.post("/deadlines")
+def create_deadline(body: DeadlineIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from thinkfirst.modules.adaptation import planner
+
+    d = planner.create_deadline(db, user.id, body.model_dump(exclude_unset=True))
+    return {"deadline": planner.deadline_public(d, {})}
+
+
+@router.patch("/deadlines/{deadline_id}")
+def update_deadline(deadline_id: str, body: DeadlineIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from thinkfirst.modules.adaptation import planner
+
+    d = planner.update_deadline(db, user.id, deadline_id, body.model_dump(exclude_unset=True))
+    return {"deadline": planner.deadline_public(d, {})}
+
+
+@router.delete("/deadlines/{deadline_id}")
+def delete_deadline(deadline_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from thinkfirst.modules.adaptation import planner
+
+    planner.delete_deadline(db, user.id, deadline_id)
+    return {"ok": True}
+
+
+@router.get("/me/progress-metrics")
+def progress_metrics(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from thinkfirst.modules.adaptation import progress
+
+    return progress.metrics(db, user.id)

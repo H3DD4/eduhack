@@ -327,6 +327,68 @@ class ProposedItem:
     page: int
 
 
+_TOC_CHAPTER = re.compile(r"^\s*(?:chapter|chapitre|unit|unité|partie|part|module|lesson|leçon)\s+(\d{1,3})\s*[:.\-–—]?\s+"
+                          r"(.{2,120}?)[\s.·…]+(\d{1,4})\s*$", re.I)
+_TOC_SECTION = re.compile(r"^\s*(\S.{1,118}?)[\s.·…]+(\d{1,4})\s*$")
+_TOC_SKIP = re.compile(r"^(exercises?|solutions?|exercices?|corrigés?|contents?|index|summary|résumé|appendix.*)$", re.I)
+CHAPTERS_PER_UNIT = 6
+
+
+def toc_scope(pages: list[str]) -> list[ProposedConcept]:
+    """Roadmap from a printed table of contents ("Chapter 5 Operators ... 81"): one level per chapter, in the book's
+    order, its sections listed in the objective. Printed page numbers are mapped to real PDF pages by finding the
+    chapter titles at the top of pages. Nothing is invented; [] when there is no clear table of contents."""
+    chapters: list[dict] = []
+    last_toc = 0
+    for idx, page in enumerate(pages[:80]):
+        for line in page.split("\n"):
+            if m := _TOC_CHAPTER.match(line):
+                no, title, printed = int(m.group(1)), m.group(2).strip(" .:·…"), int(m.group(3))
+                if chapters and (no != chapters[-1]["no"] + 1 or printed <= chapters[-1]["printed"]):
+                    continue
+                chapters.append({"no": no, "title": title, "printed": printed, "sections": []})
+                last_toc = idx
+            elif chapters and idx <= last_toc + 1 and (m := _TOC_SECTION.match(line)):
+                name, printed = m.group(1).strip(" .:·…"), int(m.group(2))
+                if printed >= chapters[-1]["printed"] and len(name) > 2 and not _TOC_SKIP.match(name):
+                    chapters[-1]["sections"].append(name)
+    if len(chapters) < 3:
+        return []
+    # printed page -> PDF page: most common offset among chapter titles found in the first lines of later pages
+    votes: dict[int, int] = {}
+    tops = [[x.strip().lower() for x in p.split("\n")[:4]] for p in pages]
+    for ch in chapters:
+        for i in range(last_toc + 1, len(pages)):
+            if ch["title"].lower() in tops[i]:
+                votes[i + 1 - ch["printed"]] = votes.get(i + 1 - ch["printed"], 0) + 1
+    offset = max(votes, key=lambda k: votes[k]) if votes else 0
+    out: list[ProposedConcept] = []
+    prev = None
+    for n, ch in enumerate(chapters):
+        unit = n // CHAPTERS_PER_UNIT + 1
+        first = chapters[(unit - 1) * CHAPTERS_PER_UNIT]["no"]
+        last = chapters[min(unit * CHAPTERS_PER_UNIT, len(chapters)) - 1]["no"]
+        page = min(max(ch["printed"] + offset, 1), len(pages))
+        quote = next((x.strip() for x in pages[page - 1].split("\n") if len(x.strip()) > 40), "")
+        key = f"{unit}.{n % CHAPTERS_PER_UNIT + 1}"
+        out.append(ProposedConcept(
+            key=key, title=ch["title"], unit_no=unit, unit_title=f"Chapters {first}–{last}", page=page, span_start=0, span_end=0,
+            objective=(f"Chapter {ch['no']}" + (": " + "; ".join(ch["sections"]) if ch["sections"] else ""))[:600],
+            prerequisites=[prev] if prev else [], uncertain=not votes, quote=quote[:240]))
+        prev = key
+    return out
+
+
+def _plausible(concepts: list[ProposedConcept]) -> list[ProposedConcept]:
+    """Numbers inside running text ("12.34561 will be ...", "2.5 raised to ...") are not headings."""
+    kept = [c for c in concepts if c.is_foundation or not c.key[0].isdigit()
+            or (c.title[:1].isalpha() and all(len(x) <= 2 for x in c.key.split(".")))]
+    numbered = [c for c in kept if c.key[0].isdigit()]
+    if numbered and sum(c.title[:1].isupper() for c in numbered) * 2 < len(numbered):
+        return []
+    return kept
+
+
 def outline_scope(pages: list[str]) -> list[ProposedConcept]:
     """Roadmap from the course's own headings (Agentic Tutor heading rules), for courses that do not use the
     "1.2 Title" format: level-1 headings become units, level-2/3 headings become concepts, in course order, each
@@ -409,4 +471,8 @@ def heuristic_scope(pages: list[str]) -> tuple[list[ProposedConcept], list[Propo
     for c in concepts:
         if not c.objective:
             c.uncertain = True
-    return concepts, items
+    good = _plausible(concepts)
+    if len(good) != len(concepts):
+        keys = {c.key for c in good}
+        items = [i for i in items if i.concept_key in keys]
+    return good, items

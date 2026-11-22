@@ -150,6 +150,10 @@ class Onboarding(BaseModel):
     hours_per_week: float | None = None
     first_session_slot: str | None = None
     interests: list[str] | None = None
+    display_name: str | None = None
+    status: str | None = None       # school | university | working | self_learner
+    study_year: str | None = None   # grade / year (students)
+    job_title: str | None = None    # working people
 
 
 @router.patch("/me/onboarding")
@@ -163,7 +167,8 @@ def onboarding(body: Onboarding, user: User = Depends(current_user), db: Session
         grant_tiers=body.grant_tiers, level=body.level, field=body.field, exam_date=body.exam_date,
         prior_confidence=body.prior_confidence, study_times=body.study_times,
         hours_per_week=body.hours_per_week, first_session_slot=body.first_session_slot,
-        interests=body.interests,
+        interests=body.interests, display_name=body.display_name, status=body.status,
+        study_year=body.study_year, job_title=body.job_title,
     )
     return {"user": user_public(user), "onboarding": consent_info}
 

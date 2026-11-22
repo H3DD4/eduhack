@@ -50,7 +50,10 @@ class Settings(BaseSettings):
     # demo (default, restrictive) | groq | gemini. Real STT sends raw audio to that processor (disclosed in UI).
     stt_provider: str = "demo"
     # Embeddings: auto = Hugging Face Inference when HF_TOKEN is set, else the labelled demo hashing embedder.
-    embedding_provider: str = "auto"  # auto | hf | demo
+    # Only for offline testing: when every AI is busy, answer with the labelled demo adapter (simulated content).
+    llm_demo_fallback: bool = False
+    embedding_provider: str = "auto"  # auto (local > hf > demo) | local | hf | demo
+    model_cache_dir: str | None = None  # where the local embedding model is stored (docker: /models volume)
     hf_token: str | None = None
     hf_embed_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     hf_embed_dim: int = 384
@@ -67,7 +70,7 @@ class Settings(BaseSettings):
     # Product limits (blueprint C01 proposed defaults; DECISIONS D-010).
     max_file_bytes: int = 20 * 1024 * 1024
     max_files_per_batch: int = 5
-    max_pages_per_file: int = 200
+    max_pages_per_file: int = 1500  # whole textbooks
     max_audio_bytes: int = 25 * 1024 * 1024
 
     # Mock entitlement (DECISIONS D-011).

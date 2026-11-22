@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from arq import cron
 from arq.connections import RedisSettings
@@ -14,6 +15,8 @@ import thinkfirst.models  # noqa: F401 — registers job handlers
 from thinkfirst.config import get_settings
 from thinkfirst.core.db import session_factory
 from thinkfirst.core.jobs import run_job_by_id
+
+log = logging.getLogger("thinkfirst.worker")
 
 
 async def run_job(ctx, job_id: str) -> None:
@@ -47,8 +50,31 @@ async def purge_expired_audio(ctx) -> None:
     await asyncio.to_thread(_purge)
 
 
+def _unfinished() -> list[str]:
+    from sqlalchemy import text
+
+    with session_factory()() as db:
+        if db.get_bind().dialect.name != "postgresql":
+            return []
+        return [f"{r.id}:{r.attempts}" for r in db.execute(text("select * from core.unfinished_jobs()"))]
+
+
+async def recover(ctx) -> None:
+    """Every minute: jobs still queued in the database are (re)queued, so a crash, a lost queue message or a worker that
+    started before the migrations never leaves a student stuck. Same id => the queue ignores jobs already waiting/running."""
+    try:
+        ids = await asyncio.to_thread(_unfinished)
+    except Exception:  # noqa: BLE001
+        log.exception("job recovery failed")
+        return
+    for qid in ids:
+        await ctx["redis"].enqueue_job("run_job", qid.partition(":")[0], _job_id=qid)
+
+
 class WorkerSettings:
+    keep_result = 600  # pace re-runs of a job that keeps crashing
+    job_timeout = 3600  # indexing a whole book takes several minutes (ARQ's default is 300 s)
     functions = [run_job]
-    cron_jobs = [cron(purge_expired_audio, minute={0, 30})]
+    cron_jobs = [cron(purge_expired_audio, minute={0, 30}), cron(recover, second=5, run_at_startup=True)]
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
     max_tries = 3

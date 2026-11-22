@@ -16,6 +16,8 @@ import logging
 import re
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
@@ -62,6 +64,23 @@ def register_demo(prompt_id: str):
         return fn
 
     return deco
+
+
+BATCH_PURPOSES = {"course_summary", "course_summary_repair", "course_summary_style", "topic_summary", "concept_pack"}
+# Background work may wait for a free-tier minute to pass; a student's interactive request may not.
+PATIENT_PURPOSES = BATCH_PURPOSES | {"placement_items", "placement_check", "topic_scope", "scope_proposal"}
+_patient: ContextVar[bool] = ContextVar("llm_patient", default=False)
+_urgent: list[str] = []
+
+
+@contextmanager
+def urgent(name: str):
+    """While active, batch generation pauses so the shared free quota goes to what the student is waiting for."""
+    _urgent.append(name)
+    try:
+        yield
+    finally:
+        _urgent.remove(name)
 
 
 @dataclass
@@ -118,7 +137,18 @@ def capabilities() -> dict[str, Any]:
 def _validate(template: PromptTemplate, output: Any) -> bool:
     if not isinstance(output, dict):
         return False
-    return all(k in output for k in template.output_schema.get("required", []))
+    return all(k in output for k in template.output_schema.get("required", [])) and _shape_ok(template.output_schema, output)
+
+
+def _shape_ok(schema: dict[str, Any], value: Any) -> bool:
+    """Objects and arrays must really be objects and arrays, at every depth (e.g. units as strings are rejected)."""
+    kind = schema.get("type")
+    if kind == "object" and "properties" in schema:
+        return isinstance(value, dict) and all(_shape_ok(sub, value[k]) for k, sub in schema["properties"].items()
+                                               if value.get(k) is not None)
+    if kind == "array":
+        return isinstance(value, list) and all(_shape_ok(schema.get("items", {}), v) for v in value)
+    return True
 
 
 def _call_anthropic(template: PromptTemplate, user_text: str) -> tuple[dict, int, int]:
@@ -232,16 +262,18 @@ def _call_groq(template: PromptTemplate, user_text: str) -> tuple[dict, int, int
     s = get_settings()
     body = {"model": s.groq_model, "temperature": 0, "response_format": {"type": "json_object"},
             "messages": [{"role": "system", "content": template.system}, {"role": "user", "content": user_text}]}
-    for attempt in range(4):  # rate limits on Groq are per minute: wait a few seconds and retry
+    patient = _patient.get()
+    tries, longest = (8, 45.0) if patient else (4, 10.0)
+    for attempt in range(tries):  # rate limits on Groq are per minute: wait and retry
         r = httpx.post("https://api.groq.com/openai/v1/chat/completions", json=body,
                        headers={"Authorization": f"Bearer {s.groq_api_key or ''}"}, timeout=60)
-        if r.status_code != 429 or attempt == 3:
+        if r.status_code != 429 or attempt == tries - 1:
             break
         try:
             wait = float(r.headers.get("retry-after", "0"))
         except ValueError:
             wait = 0.0
-        time.sleep(min(max(wait, 2.0 * (attempt + 1)), 10.0))
+        time.sleep(min(max(wait, 2.0 * (attempt + 1)), longest))
     if r.status_code == 429:
         raise _ProviderError("RATE_LIMITED")
     if r.status_code >= 400:
@@ -321,14 +353,25 @@ class _ProviderError(Exception):
 def run(db: Session, prompt_id: str, variables: dict[str, Any], *, owner_id: str | None, purpose: str,
         provider: str | None = None) -> GatewayResult:
     """Try the provider chain in order (e.g. Ollama, Gemini, Groq). One metadata log row per provider attempt."""
+    if purpose in BATCH_PURPOSES:  # long texts wait while a student is waiting for their level test
+        waited = 0
+        while _urgent and waited < 300:
+            time.sleep(3)
+            waited += 3
     chain = [provider] if provider else provider_chain()
     result: GatewayResult | None = None
     for p in chain:
-        result = _run_one(db, prompt_id, variables, owner_id=owner_id, purpose=purpose, provider=p)
+        token = _patient.set(purpose in PATIENT_PURPOSES and get_settings().job_mode == "arq")
+        try:
+            result = _run_one(db, prompt_id, variables, owner_id=owner_id, purpose=purpose, provider=p)
+        finally:
+            _patient.reset(token)
         if result.status == "ok":
             return result
         if result.status == "error" and p != "demo":
-            _cooldown_until[p] = time.time() + (RATE_LIMIT_COOLDOWN_S if result.error_code == "RATE_LIMITED" else COOLDOWN_S)
+            # HTTP_400 = this one answer was malformed (e.g. code inside JSON): the provider itself is fine
+            pause = 0 if result.error_code == "HTTP_400" else RATE_LIMIT_COOLDOWN_S if result.error_code == "RATE_LIMITED" else COOLDOWN_S
+            _cooldown_until[p] = time.time() + pause
     # If every real provider failed with quota/capacity errors (HTTP_402, HTTP_503, RATE_LIMITED, TIMEOUT)
     # in demo_mode, fall back to the explicitly labeled demo adapter (simulated=True) so local testing continues uninterrupted.
     if (
@@ -337,6 +380,7 @@ def run(db: Session, prompt_id: str, variables: dict[str, Any], *, owner_id: str
         and result.error_code in ("HTTP_402", "HTTP_503", "RATE_LIMITED", "TIMEOUT")
         and not provider
         and get_settings().demo_mode
+        and get_settings().llm_demo_fallback
         and prompt_id in _demo_adapters
     ):
         return _run_one(db, prompt_id, variables, owner_id=owner_id, purpose=purpose, provider="demo")

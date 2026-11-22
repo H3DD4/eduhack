@@ -54,6 +54,17 @@ export default function SummaryPage() {
     try { await api(`/subjects/${s}/summary`, { method: "POST", json: { regenerate } }); reload(); }
     catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
+  const failed = sm ? sm.sections.filter((x: any) => ["failed", "incomplete"].includes(x.status)).length : 0;
+  const retryAll = async () => {
+    setBusy(true); setErr(null);
+    try { await api(`/subjects/${s}/summary/retry-failed`, { method: "POST" }); reload(); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const more = async () => {
+    setBusy(true); setErr(null);
+    try { await api(`/subjects/${s}/summary/more`, { method: "POST" }); reload(); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
   const retry = async (id: string) => { await api(`/summary-sections/${id}/retry`, { method: "POST" }).catch((e) => setErr(e.message)); reload(); };
 
   return (
@@ -87,13 +98,25 @@ export default function SummaryPage() {
               <button className="btn-link print:hidden" disabled={busy || sm.status === "building"} onClick={() => create(true)}>Rewrite</button>
             </div>
             {sm.label && <p className="text-meta text-ink-muted">{sm.label}</p>}
+            {failed > 0 && sm.status !== "building" && (
+              <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-control border-2 border-review bg-review-surface p-3">
+                <p className="text-review">{failed} section(s) could not be written (the AI service was busy). They are retried one by one.</p>
+                <button className="btn-primary" disabled={busy} onClick={retryAll}>Retry failed sections</button>
+              </div>
+            )}
             {sm.coverage?.missing?.length > 0 && (
               <p role="alert" className="rounded-control border-2 border-review bg-review-surface p-3 text-review">
                 Not covered yet: {sm.coverage.missing.map((m: any) => `${m.filename} p.${m.page}`).join(", ")}. Use “Try again” on the section.
               </p>
             )}
 
-            <nav aria-label="Summary contents" className="game-card p-4 print:hidden">
+            {sm.progress.later > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-control border-2 border-ink bg-soft p-3 print:hidden">
+                <p>Long course: {sm.progress.later} more section(s) are written when you need them, so your AI quota is not used up at once.</p>
+                <button className="btn-primary" disabled={busy || sm.status === "building"} onClick={more}>Write the next 5</button>
+              </div>
+            )}
+            <nav aria-label="Summary contents" className="game-card max-h-64 overflow-y-auto p-4 print:hidden">
               <ol className="flex flex-wrap gap-2">
                 {sm.sections.map((x: any) => (
                   <li key={x.id}><a href={`#sec-${x.no}`} className="chip text-meta">{x.no}. {x.title}{x.status === "pending" ? " …" : ""}</a></li>
@@ -102,7 +125,7 @@ export default function SummaryPage() {
             </nav>
 
             {sm.sections.map((x: any) => (
-              <article key={x.id} id={`sec-${x.no}`} className="game-card space-y-3 p-5 md:p-7" data-section-status={x.status}>
+              <article key={x.id} id={`sec-${x.no}`} className="game-card scroll-mt-44 space-y-3 p-5 md:p-7" data-section-status={x.status}>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="unit-banner inline-block px-3 py-1 text-meta font-bold">{x.no}</span>
                   <h3 className="flex-1 text-section !text-[1.3rem]">{x.title}</h3>
@@ -110,6 +133,7 @@ export default function SummaryPage() {
                 </div>
                 {x.pages.length > 0 && <p className="text-meta text-ink-muted">{x.filename} · pages {x.pages.join(", ")}
                   {x.content?.likeness != null && <span className="ml-2 pill" title="How much this section reads like your course: vocabulary, notation, style">Matches your course: {Math.round(100 * x.content.likeness)}%</span>}</p>}
+                {x.status === "later" && <button className="btn-secondary" disabled={sm.status === "building"} onClick={() => retry(x.id)}>Write this section</button>}
                 {x.status === "pending" && <Skeleton lines={4} label="Writing this section" />}
                 {x.status === "failed" && (
                   <ErrorBox message="This section could not be written."><button className="btn-primary" onClick={() => retry(x.id)}>Try again</button></ErrorBox>

@@ -89,8 +89,13 @@ def enqueue(db: Session, job_type: str, owner_id: str, payload: dict, idempotenc
     if get_settings().job_mode == "inline":
         _execute(db, job)
     else:
-        db.info.setdefault("after_commit_jobs", []).append(job.id)
+        _queue(db, job)
     return job
+
+
+def _queue(db: Session, job: Job) -> None:
+    """Queue ids carry the attempt number: ARQ silently drops an id it has already run, so a retry needs a new one."""
+    db.info.setdefault("after_commit_jobs", []).append(f"{job.id}:{job.attempts or 0}")
 
 
 def retry(db: Session, job: Job) -> Job:
@@ -103,7 +108,7 @@ def retry(db: Session, job: Job) -> Job:
     if get_settings().job_mode == "inline":
         _execute(db, job)
     else:
-        db.info.setdefault("after_commit_jobs", []).append(job.id)
+        _queue(db, job)
     return job
 
 
@@ -167,6 +172,6 @@ async def enqueue_remote(ids: list[str]) -> None:
     from arq.connections import RedisSettings
 
     pool = await create_pool(RedisSettings.from_dsn(get_settings().redis_url))
-    for jid in ids:
-        await pool.enqueue_job("run_job", jid, _job_id=jid)
+    for qid in ids:
+        await pool.enqueue_job("run_job", qid.partition(":")[0], _job_id=qid)
     await pool.close()

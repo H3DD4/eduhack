@@ -283,3 +283,83 @@ def test_model_json_is_repaired_not_dropped():
     out = _loads(raw)
     assert out == {"a": "$" + bs + "alpha + " + bs + "frac{1}{2}$, " + bs + "theta", "n": "x\ny"}
     assert _loads('Sure: {"k": [1]} done') == {"k": [1]}
+
+
+JAVA = """Unit 1: Java basics
+1.1 Java syntax
+Objective: Declare typed variables and write a main method in Java.
+A Java program starts in the main method of a class and every variable has a type.
+1.2 Control flow
+Objective: Use if, for and while in Java.
+Loops repeat a block while a boolean condition holds, for example for and while loops.
+Unit 2: Objects
+2.1 Classes and Objects
+Objective: Define a class and create objects with new.
+A class describes fields and methods; new creates an object on the heap.
+"""
+
+
+def test_algebra_questions_never_reach_another_subject_with_the_same_concept_numbers(student, fake_ai, monkeypatch):
+    from thinkfirst.modules.diagnostic.service import CURATED_BANK
+
+    seen: list[dict] = []
+    monkeypatch.setitem(llm._demo_adapters, "generate_placement_items", lambda v: (seen.append(v), _items(v))[1])
+    sid = student.post("/api/subjects/start", data={"topic": "Java Programming Learning Roadmap", "goal": "explore",
+                                                    "prior_knowledge": "some", "rights_ack": "true",
+                                                    "paste_text": JAVA}).json()["subject"]["id"]
+    rev = student.get(f"/api/subjects/{sid}/setup").json()["proposal"]
+    assert [c["key"] for c in rev["concepts"]] == ["1.1", "1.2", "2.1"]  # same numbers as the algebra course
+    student.post(f"/api/subjects/{sid}/scope/confirm", json={"graph_revision_id": rev["id"], "edits": []})
+    assert seen and all(v["subject"] == "Java Programming" for v in seen)
+    assert {c["key"] for v in seen for c in v["concepts"]} == {"1.1", "1.2", "2.1"}  # none skipped
+    algebra = {t["prompt"] for items in CURATED_BANK.values() for t in items}
+    st, asked = student.post(f"/api/subjects/{sid}/diagnostic/start", json={}).json(), []
+    while st["status"] == "active":
+        asked.append(st["current_item"]["prompt"])
+        st = student.post(f"/api/subjects/{sid}/diagnostic/answer",
+                          json={"item_id": st["current_item"]["id"], "dont_know": True, "duration_ms": 4000}).json()
+    assert asked and not set(asked) & algebra and not any("core goal" in q for q in asked)
+
+
+def test_invalid_session_can_be_retaken_and_is_announced(student, fake_ai):
+    from thinkfirst.modules.diagnostic.grading.models import DiagnosticSessionRow
+
+    sid = _start(student, "some")
+    student.post(f"/api/subjects/{sid}/diagnostic/start", json={})
+    with dbmod.session_factory()() as db:
+        db.scalar(select(DiagnosticSessionRow).where(DiagnosticSessionRow.subject_id == sid)).status = "invalid"
+        db.commit()
+    p = student.post(f"/api/subjects/{sid}/placement/prepare").json()["placement"]
+    assert p["discarded_test"] is True and p["state"] == "ready"
+    assert student.get(f"/api/subjects/{sid}/diagnostic").json()["adaptive"] is None
+    assert student.post(f"/api/subjects/{sid}/diagnostic/start", json={}).json()["status"] == "active"
+
+
+def test_busy_ai_continues_in_new_rounds_instead_of_a_tiny_test(student, fake_ai, monkeypatch):
+    calls = {"n": 0}
+
+    def flaky(v):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("busy")
+        return _items(v)
+
+    monkeypatch.setitem(llm._demo_adapters, "generate_placement_items", flaky)
+    sid = _start(student, "some")
+    p = student.get(f"/api/subjects/{sid}/level").json()["placement"]
+    assert calls["n"] >= 3 and p["state"] == "ready" and p["verified_items"] >= 6  # the lost batch was written again
+    with dbmod.session_factory()() as db:
+        keys = [r.item_key for r in db.scalars(select(DiagnosticItemRow).where(DiagnosticItemRow.subject_id == sid,
+                                                                              DiagnosticItemRow.generated.is_(True))).all()]
+    assert len(keys) == len(set(keys))
+
+
+def test_no_silent_demo_content_when_every_ai_is_busy(app_client, monkeypatch):
+    from thinkfirst.config import get_settings
+
+    assert get_settings().llm_demo_fallback is False
+    monkeypatch.setattr(llm, "provider_chain", lambda: ["groq"])
+    monkeypatch.setitem(llm._CALLERS, "groq", lambda t, u: (_ for _ in ()).throw(llm._ProviderError("RATE_LIMITED")))
+    with dbmod.session_factory()() as db:
+        res = llm.run(db, "generate_concept_pack", {"concept": {}}, owner_id=None, purpose="x")
+    assert res.status == "error" and not res.simulated

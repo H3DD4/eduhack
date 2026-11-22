@@ -231,6 +231,23 @@ def create_summary(subject_id: str, body: SummaryIn | None = None, user: User = 
     return summary.public(db, user.id, subject_id)
 
 
+@router.post("/subjects/{subject_id}/summary/more")
+def more_summary(subject_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from thinkfirst.modules.tutor import summary
+
+    n = summary.write_more(db, user.id, subject_id)
+    return {"started": n, **summary.public(db, user.id, subject_id)}
+
+
+@router.post("/subjects/{subject_id}/summary/retry-failed")
+def retry_failed_summary(subject_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Retry every failed or incomplete section of the current summary, one after another."""
+    from thinkfirst.modules.tutor import summary
+
+    n = summary.retry_failed(db, user.id, subject_id)
+    return {"retried": n, **summary.public(db, user.id, subject_id)}
+
+
 @router.post("/summary-sections/{section_id}/retry")
 def retry_summary_section(section_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     from thinkfirst.modules.tutor import summary

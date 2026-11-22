@@ -164,7 +164,7 @@ function Settings() {
       </nav>
       <div className="max-w-prose">
         <h1 className="mb-4 text-page-compact">{SECTIONS.find((x) => x.k === section)?.t || "Settings"}</h1>
-        {section === "account" && <div className="card"><p>Signed in as <strong>{me?.email}</strong>.</p><p className="mt-2 text-meta text-ink-muted">Password changes arrive later.</p></div>}
+        {section === "account" && <div className="card"><p>Signed in as <strong>{me?.email}</strong>.</p><p className="mt-2 text-meta text-ink-muted">Password changes arrive later.</p><Link href="/onboarding" className="btn-secondary mt-4">Edit my learning profile</Link></div>}
         {section === "privacy" && <Privacy />}
         {section === "language" && <div className="card"><p>English. French and Arabic (with right-to-left layout) are coming soon.</p></div>}
         {section === "notifications" && <div className="card"><p>Not connected. Opt-in reminders are coming soon; ThinkFirst never asks for browser notification permission unprompted.</p></div>}

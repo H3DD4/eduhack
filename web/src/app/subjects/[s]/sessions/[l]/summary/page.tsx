@@ -48,7 +48,7 @@ export default function Summary() {
   };
 
   return (
-    <SubjectShell subjectId={s} crumb="Session summary">
+    <SubjectShell subjectId={s} crumb="Session summary" parent="roadmap">
       <LiveRegion message={msg} />
       <div className="max-w-prose space-y-6" data-screen="S03">
         {!data && !error && <Skeleton lines={5} />}

@@ -18,7 +18,7 @@ function Viewer() {
   const { data, error, reload } = useApi<any>(`/documents/${d}/pages/${page}`);
   const go = (p: number) => router.replace(`/subjects/${s}/resources/${d}?page=${p}${ret ? `&return=${encodeURIComponent(ret)}` : ""}`);
   return (
-    <SubjectShell subjectId={s} crumb="Document">
+    <SubjectShell subjectId={s} crumb="Document" parent="resources">
       <div data-screen="W07" className="max-w-prose space-y-4">
         {!data && !error && <Skeleton lines={8} />}
         {error?.code === "TRANSFER_LOCKED" && <ErrorBox title="Hidden during independent application" message={error.message}><Link className="btn-secondary" href={safeRet}>Return</Link></ErrorBox>}
