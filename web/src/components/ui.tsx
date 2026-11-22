@@ -1,6 +1,6 @@
 "use client";
-import katex from "katex";
 import Link from "next/link";
+import { parseRichMath, renderKatex } from "@/lib/math";
 import { SpeakButton } from "./avatar/AvatarSpeakerContext";
 import { Mark } from "./Logo";
 import { ReactNode, useEffect, useRef } from "react";
@@ -137,36 +137,32 @@ export function Dialog({ open, title, onClose, children, describedBy }:
 
 /* ---------- math (KaTeX, with text equivalent) ---------- */
 
-const MATH_RUN = /(\d*\s*\([a-z0-9+\-−·*× ]+\)(?:\s*[+\-−]\s*\d*[a-z]?)*|\b\d+[a-z](?:\s*[+\-−]\s*\d+[a-z]?)+)/gi;
-// ```code```, `code`, $$display$$, $inline$, \\(inline\\), then plain algebra runs
-const RICH = new RegExp("```(\\w*)[ \\t]*\\n?([\\s\\S]*?)```|`([^`\\n]+)`|\\$\\$([\\s\\S]+?)\\$\\$|\\$(?=\\S)([^$\\n]{0,400}?\\S)\\$(?!\\d)|\\\\\\(([\\s\\S]+?)\\\\\\)|" + MATH_RUN.source, "gi");
-
-export function MathText({ text, className = "" }: { text: string; className?: string }) {
-  const parts: ReactNode[] = [];
-  let last = 0;
-  for (const m of text.matchAll(RICH)) {
-    const i = m.index ?? 0;
-    const [full, , block, inline, display, dollar, paren, run] = m;
-    if (run !== undefined) {
-      // "main(args)" and "(a note)" are text; "2(x + 3)" is math
-      const inner = run.match(/\(([^)]*)\)/)?.[1];
-      if (/[A-Za-z_]{2,}$/.test(text.slice(0, i)) || (inner !== undefined && inner.trim().length > 2 && !/[0-9+\-−·*×]/.test(inner))) continue;
-    }
-    if (i > last) parts.push(text.slice(last, i));
-    last = i + full.length;
-    if (block !== undefined) {
-      parts.push(<code key={i} className="my-2 block overflow-x-auto whitespace-pre rounded-detail border-2 border-ink bg-ink p-3 font-mono text-[0.95rem] leading-relaxed text-white">{block.replace(/\s+$/, "")}</code>);
-      continue;
-    }
-    if (inline !== undefined) { parts.push(<code key={i} className="rounded bg-soft px-1 font-mono text-[0.95em] text-soft-fg">{inline}</code>); continue; }
-    const tex = display ?? dollar ?? paren;
-    const src = tex ?? (run as string).replace(/·|×/g, "\\cdot ").replace(/−/g, "-").replace(/\*/g, "\\cdot ");
-    let html = "";
-    try { html = katex.renderToString(src, { throwOnError: false, output: "htmlAndMathml", displayMode: display !== undefined }); } catch { html = ""; }
-    parts.push(html ? <span key={i} className="math-scroll inline-block align-middle" dangerouslySetInnerHTML={{ __html: html }} /> : full);
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return <span className={className}>{parts}</span>;
+export function MathText({ text, className = "", formula = false }: { text: string; className?: string; formula?: boolean }) {
+  const segments = parseRichMath(text, { formula });
+  return (
+    <span className={className}>
+      {segments.map((seg, i) => {
+        if (seg.kind === "text") return seg.value;
+        if (seg.kind === "code-block") {
+          return (
+            <code key={i} className="my-2 block overflow-x-auto whitespace-pre rounded-detail border-2 border-ink bg-ink p-3 font-mono text-[0.95rem] leading-relaxed text-white">
+              {seg.value}
+            </code>
+          );
+        }
+        if (seg.kind === "code-inline") {
+          return <code key={i} className="rounded bg-soft px-1 font-mono text-[0.95em] text-soft-fg">{seg.value}</code>;
+        }
+        const html = renderKatex(seg.value, seg.display);
+        if (!html) return seg.value;
+        return seg.display ? (
+          <span key={i} className="math-display math-scroll my-1 block text-center" dangerouslySetInnerHTML={{ __html: html }} />
+        ) : (
+          <span key={i} className="math-inline" dangerouslySetInnerHTML={{ __html: html }} />
+        );
+      })}
+    </span>
+  );
 }
 
 /* ---------- companion (original faceted compass; peripheral, never during capture/transfer/exams) ---------- */

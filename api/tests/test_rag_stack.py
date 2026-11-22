@@ -61,3 +61,31 @@ def test_qdrant_filters_by_owner_and_subject(monkeypatch):
     assert qdrant.search(name, [1, 0, 0], 5, {"owner_id": "u1", "subject_id": "s1"}) == []
     with httpx.Client(base_url=QURL) as c:
         c.delete(f"/collections/{name}")
+
+
+def test_tutor_embedder_auto_falls_back_on_hf_402(monkeypatch):
+    from types import SimpleNamespace
+
+    from tutor import http as tutor_http
+    from tutor.config import TutorSettings
+    from tutor.rag.embed import build_embedder
+
+    calls = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append(1)
+        return SimpleNamespace(status=402)
+
+    monkeypatch.setattr(tutor_http, "post", fake_post)
+    s = TutorSettings(
+        embedder="auto",
+        hf_token="hf_test",
+        embed_model="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    )
+    e = build_embedder(s)
+    v1 = e.embed(["hello"])
+    v2 = e.embed(["world"])
+    assert len(calls) == 1
+    assert e.name == "hashing"
+    assert len(v1) == 1 and len(v1[0]) == 512
+    assert len(v2) == 1 and len(v2[0]) == 512

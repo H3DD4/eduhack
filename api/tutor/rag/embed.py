@@ -7,11 +7,14 @@ HF_TOKEN is set > hashing. Vectors are L2-normalised so dot product == cosine.
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 from typing import Protocol
 
 from ..config import TutorSettings
 from ..textutil import norm, tokens
+
+log = logging.getLogger("tutor.rag.embed")
 
 
 class Embedder(Protocol):
@@ -98,6 +101,32 @@ class HFInferenceEmbedder:
         return out
 
 
+class FallbackEmbedder:
+    """Tries a remote embedder and falls back to a local embedder if the remote fails."""
+
+    def __init__(self, primary: Embedder, fallback: Embedder):
+        self.primary = primary
+        self.fallback = fallback
+        self.name = primary.name
+        self.dim = primary.dim
+        self._tripped = False
+
+    def embed(self, texts: list[str], *, query: bool = False) -> list[list[float]]:
+        if self._tripped:
+            return self.fallback.embed(texts, query=query)
+        try:
+            vecs = self.primary.embed(texts, query=query)
+            self.dim = self.primary.dim
+            return vecs
+        except Exception as exc:  # noqa: BLE001
+            log.warning("embedder %s failed (%s); falling back to %s", self.primary.name, exc, self.fallback.name)
+            if any(code in str(exc) for code in ("HF_401", "HF_402", "HF_403")):
+                self._tripped = True
+                self.name = self.fallback.name
+                self.dim = self.fallback.dim
+            return self.fallback.embed(texts, query=query)
+
+
 def build_embedder(s: TutorSettings) -> Embedder:
     choice = s.embedder
     if choice in ("auto", "sentence-transformers"):
@@ -107,5 +136,6 @@ def build_embedder(s: TutorSettings) -> Embedder:
             if choice == "sentence-transformers":
                 raise
     if choice in ("auto", "hf") and s.hf_token:
-        return HFInferenceEmbedder(s.embed_model, s.hf_token)
+        primary = HFInferenceEmbedder(s.embed_model, s.hf_token)
+        return FallbackEmbedder(primary, HashingEmbedder()) if choice == "auto" else primary
     return HashingEmbedder()

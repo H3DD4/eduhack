@@ -8,6 +8,7 @@ import { SubjectShell } from "@/components/SubjectShell";
 import { ErrorBox, MathText, Skeleton } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
+import { Illo } from "@/components/Illo";
 
 const FOCUS: Record<string, { label: string; cls: string }> = {
   known: { label: "You know this · quick recap", cls: "bg-hl" },
@@ -16,7 +17,7 @@ const FOCUS: Record<string, { label: string; cls: string }> = {
 };
 const BLOCK_CLS: Record<string, string> = {
   definition: "border-l-4 border-strong bg-soft/60 p-3 rounded-detail",
-  formula: "rounded-detail border-2 border-ink bg-surface-subtle p-3 text-center font-mono",
+  formula: "rounded-detail border-2 border-ink bg-surface-subtle px-4 py-3 text-center",
   example: "rounded-detail border-2 border-dashed border-ink p-3",
   tip: "rounded-detail bg-success-surface p-3",
   warning: "rounded-detail bg-review-surface p-3",
@@ -28,7 +29,9 @@ function Block({ b }: { b: any }) {
   const body = (
     <>
       {BLOCK_PREFIX[b.type] && <p className="text-meta font-bold uppercase">{BLOCK_PREFIX[b.type]}</p>}
-      {b.text && <p className="whitespace-pre-line"><MathText text={b.text} /></p>}
+      {b.text && (b.type === "formula"
+        ? <div className="overflow-x-auto"><MathText text={b.text} formula /></div>
+        : <p className="whitespace-pre-line"><MathText text={b.text} /></p>)}
       {b.items?.length > 0 && <ul className="ml-5 list-disc space-y-1">{b.items.map((it: string, i: number) => <li key={i}><MathText text={it} /></li>)}</ul>}
       {b.pages?.length > 0 && <p className="text-meta text-ink-muted">p. {b.pages.join(", ")}</p>}
     </>
@@ -84,8 +87,8 @@ export default function SummaryPage() {
           <>
             <div className="game-card flex flex-wrap items-center gap-4 p-5">
               <span className="badge capitalize">Level: {sm.level}</span>
-              <span className="badge">{sm.goal === "exam" ? "🎯 Exam preparation" : "🧭 Learning"}</span>
-              <span className="badge">{sm.mode === "course" ? "📄 From your course" : "✨ From open sources"}</span>
+              <span className="badge"><Illo name={sm.goal === "exam" ? "exam" : "explore"} size={20} />{sm.goal === "exam" ? " Exam preparation" : " Learning"}</span>
+              <span className="badge"><Illo name={sm.mode === "course" ? "course" : "sources"} size={20} />{sm.mode === "course" ? " From your course" : " From open sources"}</span>
               {sm.coverage && (
                 <div className="min-w-[14rem] flex-1">
                   <p className="text-meta"><strong>Coverage:</strong> {sm.coverage.pages_covered}/{sm.coverage.pages_total} pages</p>

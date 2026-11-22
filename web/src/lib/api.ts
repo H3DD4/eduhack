@@ -48,7 +48,8 @@ export async function api<T = any>(path: string, init: RequestInit & { json?: un
     const data = ct.includes("application/json") ? await res.json() : await res.blob();
     if (!res.ok) {
       const err = (data as any)?.error || {};
-      throw new ApiError(res.status, err.code || `HTTP_${res.status}`, err.message || "Something went wrong.", err);
+      const detail = typeof (data as any)?.detail === "string" ? (data as any).detail : null;
+      throw new ApiError(res.status, err.code || `HTTP_${res.status}`, err.message || detail || "Something went wrong.", err);
     }
     return data as T;
   }

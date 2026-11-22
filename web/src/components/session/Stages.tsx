@@ -255,7 +255,7 @@ export function PracticeStage({ view, subjectId, draft, onDraft, onHelp, onReloa
       {a && (
         <div ref={fbRef} tabIndex={-1} className={`fade-in rounded-card border-2 p-4 ${a.outcome === "demonstrated" ? "border-success bg-success-surface" : a.outcome === "unscored" ? "border-border bg-surface" : "border-review bg-review-surface"}`}>
           <div className="flex flex-wrap items-start justify-between gap-2">
-            <p className="font-semibold">{a.feedback}</p>
+            <p className="font-semibold"><MathText text={a.feedback} /></p>
             <SpeakButton
               text={`${a.feedback} ${a.misconception?.targeted_question ? `One question: ${a.misconception.targeted_question}` : ""}`}
               title="Feedback"
@@ -370,7 +370,7 @@ export function TransferStage({ view, subjectId, draft, onDraft, onReload, onRef
           <SpeakButton text={t.prompt} title="New application" hint={view.concept.title} subjectId={subjectId} taskId={t.id} label="Speak problem" />
         )}
       </div>
-      <h2 id="st-h" tabIndex={-1} className="text-problem font-bold">{t.prompt}</h2>
+      <h2 id="st-h" tabIndex={-1} className="text-problem font-bold"><MathText text={t.prompt} /></h2>
       {!finished && (
         <>
           <div>

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from functools import lru_cache
 from typing import Literal
 
@@ -72,6 +73,8 @@ def get_service() -> TutorService:
     if tf.ollama_model:
         s.ollama_model = tf.ollama_model
     s.hf_token = s.hf_token or tf.hf_token
+    if not os.environ.get("TUTOR_EMBED_MODEL") and tf.hf_embed_model:
+        s.embed_model = tf.hf_embed_model
     if s.llm_provider == "auto":
         if tf.llm_provider in ("anthropic", "gemini", "groq", "ollama"):
             s.llm_provider = tf.llm_provider

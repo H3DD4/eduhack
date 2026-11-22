@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
 
 import thinkfirst.models  # noqa: F401 — registers models, jobs, event handlers
 from thinkfirst.core.errors import AppError, app_error_handler
@@ -33,6 +34,20 @@ def create_app() -> FastAPI:
         ensure_schema()
     app = FastAPI(title="ThinkFirst API", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.add_exception_handler(AppError, app_error_handler)  # type: ignore[arg-type]
+
+    @app.exception_handler(OperationalError)
+    async def db_operational_error_handler(_: Request, exc: OperationalError):
+        if "locked" in str(exc).lower():
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": {
+                        "code": "DB_BUSY",
+                        "message": "The workspace is busy saving another step. Please try again in a moment.",
+                    }
+                },
+            )
+        raise exc
 
     @app.middleware("http")
     async def csrf_and_jobs(request: Request, call_next):

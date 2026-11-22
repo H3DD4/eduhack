@@ -16,6 +16,12 @@ api/thinkfirst-dev.db
 api/*.db
 api/*.sqlite
 *.sqlite
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
 /thinkfirst-web/
 /TUTOR/
 api/.storage/

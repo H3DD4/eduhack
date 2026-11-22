@@ -77,6 +77,34 @@ def job_public(job: Job) -> dict[str, Any]:
     }
 
 
+def _can_commit_inline(db: Session) -> bool:
+    return bool(
+        db.info.get("is_request_session")
+        and db.get_bind().dialect.name == "sqlite"
+        and not db.in_nested_transaction()
+    )
+
+
+def _drain_inline(db: Session, first_job: Job) -> None:
+    queue = [first_job.id]
+    db.info["_in_inline_job"] = True
+    try:
+        while queue:
+            jid = queue.pop(0)
+            job = db.get(Job, jid)
+            if job is None:
+                continue
+            _execute(db, job)
+            if _can_commit_inline(db):
+                db.commit()
+            followups = db.info.pop("_inline_followup_jobs", [])
+            if followups:
+                queue.extend(followups)
+    finally:
+        db.info["_in_inline_job"] = False
+        db.info.pop("_inline_followup_jobs", None)
+
+
 def enqueue(db: Session, job_type: str, owner_id: str, payload: dict, idempotency_key: str) -> Job:
     existing = db.scalar(select(Job).where(Job.idempotency_key == idempotency_key))
     if existing:
@@ -87,7 +115,10 @@ def enqueue(db: Session, job_type: str, owner_id: str, payload: dict, idempotenc
     db.add(job)
     db.flush()
     if get_settings().job_mode == "inline":
-        _execute(db, job)
+        if db.info.get("_in_inline_job"):
+            db.info.setdefault("_inline_followup_jobs", []).append(job.id)
+        else:
+            _drain_inline(db, job)
     else:
         _queue(db, job)
     return job
@@ -106,7 +137,10 @@ def retry(db: Session, job: Job) -> Job:
     job.error_code = None
     db.flush()
     if get_settings().job_mode == "inline":
-        _execute(db, job)
+        if db.info.get("_in_inline_job"):
+            db.info.setdefault("_inline_followup_jobs", []).append(job.id)
+        else:
+            _drain_inline(db, job)
     else:
         _queue(db, job)
     return job
@@ -127,6 +161,8 @@ def _execute(db: Session, job: Job) -> None:
         return
     job.status = RUNNING
     job.attempts += 1
+    if _can_commit_inline(db):
+        db.commit()
     try:
         with db.begin_nested():
             result = handler(db, job)

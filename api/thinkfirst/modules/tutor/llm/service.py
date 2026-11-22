@@ -171,12 +171,13 @@ def _call_anthropic(template: PromptTemplate, user_text: str) -> tuple[dict, int
     return json.loads(text), resp.usage.input_tokens, resp.usage.output_tokens
 
 
-_BAD_ESCAPE = re.compile(r'\\(?!["\\/bfnrtu])')
+_BAD_ESCAPE = re.compile(r'\\(["\\/bfnrt]|u[0-9a-fA-F]{4})|\\')
 # LaTeX commands that start with a valid JSON escape letter (\frac -> form feed + "rac", \theta -> tab + "heta"):
 # a single, unescaped backslash before them is a LaTeX backslash, never a control character in our content.
-_LATEX_ESCAPE = re.compile(r'(?<!\\)\\(?=(?:frac|beta|binom|bar|bf|bmod|big|neq|ne\b|nabla|nu\b|newline|not|right|rho|'
-                           r'rangle|rightarrow|theta|times|tau|text|tan|top|to\b|tfrac|uparrow|underline|union|forall)'
-                           r'(?![a-z]))')
+_LATEX_ESCAPE = re.compile(r'(?<!\\)\\(?=(?:frac|begin|beta|binom|bar|bf|bmod|big|bigl|bigr|Big|Bigl|Bigr|bmatrix|boxed|boldsymbol|bot|bullet|'
+                           r'neq|ne\b|nabla|nu\b|newline|not|notin|neg|right|Rightarrow|rho|rangle|rightarrow|rfloor|rceil|'
+                           r'theta|times|tau|text|textbf|textit|textrm|tan|top|to\b|tfrac|tilde|therefore|triangle|'
+                           r'uparrow|underline|underbrace|underset|upsilon|union|forall)(?![A-Za-z]))')
 
 
 def _loads(raw: str) -> dict:
@@ -193,7 +194,7 @@ def _loads(raw: str) -> dict:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        return json.loads(_BAD_ESCAPE.sub(r"\\\\", text))
+        return json.loads(_BAD_ESCAPE.sub(lambda m: m.group(0) if m.group(1) else r"\\", text))
 
 
 def _strip_json_fence(raw: str) -> str:
@@ -364,39 +365,46 @@ def run(db: Session, prompt_id: str, variables: dict[str, Any], *, owner_id: str
             time.sleep(3)
             waited += 3
     chain = [provider] if provider else provider_chain()
+    pending_logs: list[LLMCallLog] = []
     result: GatewayResult | None = None
-    for p in chain:
-        token = _patient.set(purpose in PATIENT_PURPOSES and get_settings().job_mode == "arq")
-        try:
-            result = _run_one(db, prompt_id, variables, owner_id=owner_id, purpose=purpose, provider=p,
-                              system_suffix=system_suffix)
-        finally:
-            _patient.reset(token)
-        if result.status == "ok":
-            return result
-        if result.status == "error" and p != "demo":
-            # HTTP_400 = this one answer was malformed (e.g. code inside JSON): the provider itself is fine
-            pause = 0 if result.error_code == "HTTP_400" else RATE_LIMIT_COOLDOWN_S if result.error_code == "RATE_LIMITED" else COOLDOWN_S
-            _cooldown_until[p] = time.time() + pause
-    # If every real provider failed with quota/capacity errors (HTTP_402, HTTP_503, RATE_LIMITED, TIMEOUT)
-    # in demo_mode, fall back to the explicitly labeled demo adapter (simulated=True) so local testing continues uninterrupted.
-    if (
-        result is not None
-        and result.status == "error"
-        and result.error_code in ("HTTP_402", "HTTP_503", "RATE_LIMITED", "TIMEOUT")
-        and not provider
-        and get_settings().demo_mode
-        and get_settings().llm_demo_fallback
-        and prompt_id in _demo_adapters
-    ):
-        return _run_one(db, prompt_id, variables, owner_id=owner_id, purpose=purpose, provider="demo",
-                        system_suffix=system_suffix)
-    assert result is not None
-    return result
+    try:
+        for p in chain:
+            token = _patient.set(purpose in PATIENT_PURPOSES and get_settings().job_mode == "arq")
+            try:
+                result = _run_one(db, prompt_id, variables, owner_id=owner_id, purpose=purpose, provider=p,
+                                  defer_logs=pending_logs, system_suffix=system_suffix)
+            finally:
+                _patient.reset(token)
+            if result.status == "ok":
+                return result
+            if result.status == "error" and p != "demo":
+                # HTTP_400 = this one answer was malformed (e.g. code inside JSON): the provider itself is fine
+                pause = 0 if result.error_code == "HTTP_400" else RATE_LIMIT_COOLDOWN_S if result.error_code == "RATE_LIMITED" else COOLDOWN_S
+                _cooldown_until[p] = time.time() + pause
+        # If every real provider failed with quota/capacity errors (HTTP_402, HTTP_503, RATE_LIMITED, TIMEOUT)
+        # in demo_mode, fall back to the explicitly labeled demo adapter (simulated=True) so local testing continues uninterrupted.
+        if (
+            result is not None
+            and result.status == "error"
+            and result.error_code in ("HTTP_402", "HTTP_503", "RATE_LIMITED", "TIMEOUT")
+            and not provider
+            and get_settings().demo_mode
+            and get_settings().llm_demo_fallback
+            and prompt_id in _demo_adapters
+        ):
+            return _run_one(db, prompt_id, variables, owner_id=owner_id, purpose=purpose, provider="demo",
+                            defer_logs=pending_logs, system_suffix=system_suffix)
+        assert result is not None
+        return result
+    finally:
+        if pending_logs:
+            db.add_all(pending_logs)
+            db.flush()
 
 
 def _run_one(db: Session, prompt_id: str, variables: dict[str, Any], *, owner_id: str | None, purpose: str,
-             provider: str, system_suffix: str | None = None) -> GatewayResult:
+             provider: str, defer_logs: list[LLMCallLog] | None = None,
+             system_suffix: str | None = None) -> GatewayResult:
     template = REGISTRY[prompt_id]
     if system_suffix:
         template = replace(template, system=f"{template.system}\n\n{system_suffix}")
@@ -441,8 +449,11 @@ def _run_one(db: Session, prompt_id: str, variables: dict[str, Any], *, owner_id
     entry.latency_ms = int((time.perf_counter() - started) * 1000)
     pin, pout = _PRICES.get(provider, (0.0, 0.0))
     entry.cost_micro_usd = int(entry.tokens_in * pin + entry.tokens_out * pout)
-    db.add(entry)
-    db.flush()
+    if defer_logs is not None:
+        defer_logs.append(entry)
+    else:
+        db.add(entry)
+        db.flush()
     log.info("llm_call", extra={"error_code": entry.error_code})
     return GatewayResult(output=output, provider=provider, model=model, status=entry.status,
                          simulated=provider == "demo", label=PROVIDER_LABELS[provider], error_code=entry.error_code)

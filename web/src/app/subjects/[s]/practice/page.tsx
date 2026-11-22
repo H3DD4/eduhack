@@ -13,10 +13,17 @@ export default function Practice() {
   const router = useRouter();
   const { data, error, reload } = useApi<any>(`/subjects/${s}/roadmap`);
   const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
   const start = async (cid: string) => {
     setBusy(cid);
-    const r = await api(`/subjects/${s}/sessions`, { method: "POST", json: { concept_id: cid, kind: "practice" } });
-    router.push(`/subjects/${s}/sessions/${r.session.id}/setup`);
+    setErr(null);
+    try {
+      const r = await api(`/subjects/${s}/sessions`, { method: "POST", json: { concept_id: cid, kind: "practice" } });
+      router.push(`/subjects/${s}/sessions/${r.session.id}/setup`);
+    } catch (e: any) {
+      setErr(e?.message || "Could not start practice right now. Please try again.");
+      setBusy(null);
+    }
   };
   const concepts = data ? data.units.flatMap((u: any) => u.concepts.map((c: any) => ({ ...c, unit: u.title }))) : [];
   const due = concepts.filter((c: any) => c.evidence.review_due_on);
@@ -25,6 +32,7 @@ export default function Practice() {
       <div data-screen="W02" className="space-y-6">
         {!data && !error && <Skeleton />}
         {error && <ErrorBox message="Practice could not load." onRetry={reload} />}
+        {err && <ErrorBox message={err} />}
         {due.length > 0 && (
           <section className="game-card p-5">
             <h2 className="text-section">Booked reviews</h2>

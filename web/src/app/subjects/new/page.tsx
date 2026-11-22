@@ -8,6 +8,7 @@ import { AppShell, useMe } from "@/components/AppShell";
 import { DemoLabel, ErrorBox } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
+import { Illo, type IlloName } from "@/components/Illo";
 
 type Goal = "exam" | "explore";
 type Prior = "some" | "none";
@@ -15,11 +16,11 @@ const STEPS = ["Why", "Topic", "Material", "Your level", "Check"];
 const ACCEPT = ".pdf,.docx,.pptx,.txt,.md";
 
 function Choice({ pressed, onClick, icon, title, text, name }:
-  { pressed: boolean; onClick: () => void; icon: string; title: string; text: string; name?: string }) {
+  { pressed: boolean; onClick: () => void; icon: IlloName; title: string; text: string; name?: string }) {
   return (
     <button type="button" aria-pressed={pressed} onClick={onClick} aria-label={name ?? title}
       className={`game-card flex w-full items-start gap-4 p-5 text-left ${pressed ? "!bg-hl" : ""}`}>
-      <span aria-hidden className="flex h-14 w-14 shrink-0 items-center justify-center rounded-card border-2 border-ink bg-soft text-[1.75rem]">{icon}</span>
+      <span aria-hidden className="flex h-14 w-14 shrink-0 items-center justify-center rounded-card border-2 border-ink bg-soft"><Illo name={icon} size={42} /></span>
       <span><span className="block text-[1.25rem] font-bold">{title}</span><span className="mt-1 block text-ink-muted">{text}</span></span>
     </button>
   );
@@ -123,9 +124,9 @@ export default function StartWizard() {
             <>
               <h1 ref={headRef} tabIndex={-1} className="text-page-compact md:text-page">Why are you learning?</h1>
               <div className="grid gap-4">
-                <Choice pressed={goal === "exam"} onClick={() => setGoal("exam")} icon="🎯" title="I'm preparing for an exam"
+                <Choice pressed={goal === "exam"} onClick={() => setGoal("exam")} icon="exam" title="I'm preparing for an exam"
                   text="A focused path: what is typically asked, classic traps, and a summary to revise from." />
-                <Choice pressed={goal === "explore"} onClick={() => setGoal("explore")} icon="🧭" title="I want to learn something new"
+                <Choice pressed={goal === "explore"} onClick={() => setGoal("explore")} icon="explore" title="I want to learn something new"
                   text="Learn any topic from zero or deepen it — with or without your own documents." />
               </div>
               {goal === "exam" && (
@@ -159,9 +160,9 @@ export default function StartWizard() {
             <>
               <h1 ref={headRef} tabIndex={-1} className="text-page-compact md:text-page">Do you have course material?</h1>
               <div className="grid gap-4">
-                <Choice pressed={material === "files"} onClick={() => setMaterial("files")} icon="📄" title="Yes — use my course"
+                <Choice pressed={material === "files"} onClick={() => setMaterial("files")} icon="course" title="Yes — use my course"
                   text="Upload your course (several files: PDF, Word, PowerPoint, text) or paste notes. The roadmap and summary follow it page by page." />
-                <Choice pressed={material === "none"} onClick={() => setMaterial("none")} icon="✨" title="No — find the material for me"
+                <Choice pressed={material === "none"} onClick={() => setMaterial("none")} icon="sources" title="No — find the material for me"
                   text={sugg && !sugg.ai_available ? "Needs an AI service (not configured here)." : "ThinkFirst builds the roadmap from openly licensed sources (with citations). Only your topic text is used to search."} />
               </div>
               {material === "files" && (
@@ -203,9 +204,9 @@ export default function StartWizard() {
             <>
               <h1 ref={headRef} tabIndex={-1} className="text-page-compact md:text-page">Do you already know something about “{topic.trim()}”?</h1>
               <div className="grid gap-4">
-                <Choice pressed={prior === "some"} onClick={() => setPrior("some")} icon="🧪" title="Yes — test my level"
+                <Choice pressed={prior === "some"} onClick={() => setPrior("some")} icon="levelTest" title="Yes — test my level"
                   text="A short adaptive multiple-choice test (5–12 questions, ~5 min). We find what you already know, your level and your gaps." />
-                <Choice pressed={prior === "none"} onClick={() => setPrior("none")} icon="🌱" title="No — start from scratch"
+                <Choice pressed={prior === "none"} onClick={() => setPrior("none")} icon="scratch" title="No — start from scratch"
                   text="You are treated as a full beginner: every term explained, step by step, nothing assumed." />
               </div>
             </>
@@ -216,12 +217,12 @@ export default function StartWizard() {
               <h1 ref={headRef} tabIndex={-1} className="text-page-compact md:text-page">Your plan</h1>
               <ol className="space-y-3">
                 {[
-                  ["🎯", goal === "exam" ? `Exam preparation${examDate ? ` · exam on ${examDate}` : ""}` : "Learning something new"],
-                  ["📚", topic.trim()],
-                  ["📄", material === "files" ? `Your material: ${files.length} file(s)${paste.trim() ? " + pasted text" : ""}` : "No files — open sources with citations"],
-                  ["🧪", prior === "some" ? "Level test first, then everything adapts to your level" : "Start from scratch as a beginner"],
+                  [goal === "exam" ? "exam" : "explore", goal === "exam" ? `Exam preparation${examDate ? ` · exam on ${examDate}` : ""}` : "Learning something new"],
+                  ["topic", topic.trim()],
+                  [material === "files" ? "course" : "sources", material === "files" ? `Your material: ${files.length} file(s)${paste.trim() ? " + pasted text" : ""}` : "No files — open sources with citations"],
+                  [prior === "some" ? "levelTest" : "scratch", prior === "some" ? "Level test first, then everything adapts to your level" : "Start from scratch as a beginner"],
                 ].map(([i, t]) => (
-                  <li key={t} className="game-card flex items-center gap-3 p-4"><span aria-hidden className="text-[1.5rem]">{i}</span><span className="font-semibold">{t}</span></li>
+                  <li key={t} className="game-card flex items-center gap-3 p-4"><span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-card border-2 border-ink bg-soft"><Illo name={i as IlloName} size={32} /></span><span className="font-semibold">{t}</span></li>
                 ))}
               </ol>
               <p className="text-ink-muted">Next: ThinkFirst builds your roadmap → {prior === "some" ? "you take the level test → " : ""}you get a course summary written for your level → you start learning.</p>

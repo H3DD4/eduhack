@@ -8,7 +8,7 @@ import { SpeechInput } from "@/lib/accessibility/SpeechInput";
 import { isAccessibilityActive } from "@/lib/accessibility/profile";
 import { SpeakButton } from "../avatar/AvatarSpeakerContext";
 import { TeacherAvatar } from "../avatar/TeacherAvatar";
-import { Dialog, SimulatedLabel } from "../ui";
+import { Dialog, MathText, SimulatedLabel } from "../ui";
 
 export function ProfessorPanel({ task, subjectId, onClose, onChanged, onLocked }:
   { task: any; subjectId: string; onClose: () => void; onChanged: (r?: any) => void; onLocked: () => void }) {
@@ -103,7 +103,7 @@ export function ProfessorPanel({ task, subjectId, onClose, onChanged, onLocked }
                   <p className="text-meta font-semibold text-help">Step {h.level}: {h.label}</p>
                   <SpeakButton text={`Step ${h.level}, ${h.label}: ${h.content}`} title={`Help step ${h.level}`} subjectId={subjectId} taskId={task.id} label="Speak" />
                 </div>
-                <p className="mt-1">{h.content}</p>
+                <p className="mt-1 whitespace-pre-line"><MathText text={h.content} /></p>
               </li>
             ))}
           </ol>
@@ -142,7 +142,7 @@ export function ProfessorPanel({ task, subjectId, onClose, onChanged, onLocked }
               {answer.simulated && <SimulatedLabel label={answer.label} />}
               <SpeakButton text={answer.message} title="Professor answer" subjectId={subjectId} taskId={task?.id} label="Speak answer" />
             </div>
-            <p>{answer.message}</p>
+            <p className="whitespace-pre-line"><MathText text={answer.message} /></p>
             {answer.citations?.map((c: any) => <p key={c.chunk_id} className="text-meta text-ink-muted">Course page {c.page}: “{c.quote.slice(0, 140)}…”</p>)}
           </div>
         )}

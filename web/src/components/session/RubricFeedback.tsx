@@ -3,7 +3,7 @@
 // + course source; uncertain => unscored (never zero). No mastery percentages; no totals hiding uncertainty.
 import Link from "next/link";
 import { SpeakButton } from "../avatar/AvatarSpeakerContext";
-import { SimulatedLabel } from "../ui";
+import { MathText, SimulatedLabel } from "../ui";
 
 const NAMES: Record<string, string> = {
   correctness: "Correctness", essential_coverage: "Essential coverage", why_relationships: "Why / relationships",
@@ -41,7 +41,7 @@ export function RubricFeedback({ assessment, subjectId, compact = false }: { ass
         </div>
         <SpeakButton text={spokenSummary} title="Rubric feedback" subjectId={subjectId} label="Speak feedback" />
       </div>
-      {!compact && assessment.feedback && <p>{assessment.feedback}</p>}
+      {!compact && assessment.feedback && <p><MathText text={assessment.feedback} /></p>}
       <ul className="space-y-3">
         {crit.map((c: any) => {
           const st = STATUS[c.status] || STATUS.unscored;

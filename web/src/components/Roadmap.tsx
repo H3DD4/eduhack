@@ -1,14 +1,17 @@
 "use client";
-// W01 Roadmap + W06 Concept inspector — UC08/UC09. Game map: a winding trail of level nodes with prerequisite
-// edges and optional foundation "side quests". Every node is a real link (keyboard/screen-reader order = teaching
-// order); the SVG trail is decorative. No locks: suggestions never gate. A List view is always available.
+// W01 Roadmap + W06 Concept inspector — UC08/UC09. Journey map from Start to the Finish line (RoadmapJourney):
+// milestones unlock strictly in order — one lights up only when the previous one is achieved (applied on your
+// own, or proven known on the level test). Optional foundation side quests never gate. A List view with the
+// same states is always available.
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
+import { ACHIEVED_STATES, buildJourney, RoadmapJourney } from "./RoadmapJourney";
 import { SubjectShell } from "./SubjectShell";
 import { Companion, ErrorBox, EvidencePill, Skeleton } from "./ui";
+import { Illo } from "./Illo";
 
 export function labelText(st: string) {
   return ({ introduced: "Introduced", practised_with_support: "Practised with support", explained: "Explained back",
@@ -27,101 +30,11 @@ function Evidence({ e }: { e: any }) {
   );
 }
 
-function stars(e: any) {
-  const s = new Set(e?.states || []);
-  return [s.has("practised_with_support") || s.has("introduced"), s.has("explained"), s.has("applied_independently")];
-}
-function nodeClass(e: any) {
-  if (e?.states?.includes("applied_independently")) return "node-applied";
-  if (e?.states?.length) return "node-progress";
-  return "node-new";
-}
+/** Strict: a locked milestone can be previewed but not started. Set to false to only dim locked milestones. */
+export const ROADMAP_STRICT_GATING = true;
 
-const PLACED: Record<string, { text: string; cls: string }> = {
-  known: { text: "✓ Known (test)", cls: "bg-hl" },
-  partly: { text: "◐ Partly known", cls: "bg-soft" },
-  to_learn: { text: "To learn", cls: "bg-surface" },
-};
-
-function GameMap({ unit, subjectId, conceptId, suggested, allFoundations }:
-  { unit: any; subjectId: string; conceptId?: string; suggested?: string; allFoundations: any[] }) {
-  const box = useRef<HTMLDivElement>(null);
-  const [w, setW] = useState(720);
-  useLayoutEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setW(el.clientWidth));
-    ro.observe(el);
-    setW(el.clientWidth);
-    return () => ro.disconnect();
-  }, []);
-  const amp = Math.min(w * 0.26, 220);
-  const step = 175;
-  const levels = unit.concepts.length ? unit.concepts : unit.foundations; // foundation-only units become their own trail
-  const pts = levels.map((c: any, i: number) => ({ c, x: w / 2 + Math.sin(i * 1.15) * amp, y: 80 + i * step }));
-  const byKey: Record<string, { x: number; y: number }> = {};
-  pts.forEach((p: any) => (byKey[p.c.key] = p));
-  const sideQuests: any[] = [];
-  pts.forEach((p: any) => {
-    if (!unit.concepts.length) return;
-    allFoundations.filter((f) => p.c.prerequisites.includes(f.key)).forEach((f, k) => {
-      if (sideQuests.some((q) => q.f.id === f.id)) return;
-      const side = p.x > w / 2 ? -1 : 1;
-      sideQuests.push({ f, x: Math.max(50, Math.min(w - 50, p.x + side * Math.min(170, w * 0.3))), y: p.y - 40 + k * 70, target: p });
-    });
-  });
-  const height = Math.max(200, 80 + (levels.length - 1) * step + 130);
-  const trail = pts.map((p: any, i: number) => {
-    if (i === 0) return `M ${p.x} ${p.y}`;
-    const q = pts[i - 1];
-    const my = (q.y + p.y) / 2;
-    return `C ${q.x} ${my}, ${p.x} ${my}, ${p.x} ${p.y}`;
-  }).join(" ");
-
-  return (
-    <div ref={box} className="map-bg relative mt-4 w-full overflow-hidden" style={{ height }}>
-      <svg className="absolute inset-0" width={w} height={height} aria-hidden="true">
-        <path d={trail} fill="none" stroke="var(--border)" strokeWidth="14" strokeLinecap="round" />
-        <path d={trail} fill="none" stroke="var(--surface)" strokeWidth="4" strokeDasharray="2 14" strokeLinecap="round" />
-        {pts.flatMap((p: any) => p.c.prerequisites.filter((k: string) => byKey[k] && byKey[k] !== pts[pts.indexOf(p) - 1]).map((k: string) => {
-          const q = byKey[k];
-          return <path key={`${p.c.id}-${k}`} d={`M ${q.x} ${q.y} Q ${(q.x + p.x) / 2 + 80} ${(q.y + p.y) / 2}, ${p.x} ${p.y}`} fill="none" stroke="var(--help)" strokeOpacity=".35" strokeWidth="2" strokeDasharray="6 6" />;
-        }))}
-        {sideQuests.map((q) => (
-          <path key={q.f.id} d={`M ${q.x} ${q.y} L ${q.target.x} ${q.target.y}`} stroke="var(--discovery)" strokeWidth="3" strokeDasharray="4 6" />
-        ))}
-      </svg>
-      <ol className="contents" aria-label={`Unit ${unit.unit_no} levels`}>
-        {pts.map((p: any, i: number) => {
-          const st = stars(p.c.evidence);
-          const isCurrent = suggested === p.c.id;
-          return (
-            <li key={p.c.id} className="absolute flex w-[180px] -translate-x-1/2 -translate-y-[42px] flex-col items-center text-center" style={{ left: p.x, top: p.y }}>
-              <Link href={`/subjects/${subjectId}/roadmap/concepts/${p.c.id}`}
-                aria-label={`${p.c.key} ${p.c.title}. ${p.c.placement_status ? PLACED[p.c.placement_status].text + ". " : ""}${p.c.evidence.highest_text}${isCurrent ? ". Suggested next" : ""}`}
-                aria-current={conceptId === p.c.id ? "true" : undefined}
-                className={`node ${nodeClass(p.c.evidence)} ${isCurrent ? "node-current" : ""} ${conceptId === p.c.id ? "ring-4 ring-focus" : ""}`}>
-                {p.c.evidence?.states?.includes("applied_independently") ? "★" : p.c.placement_status === "known" ? "✓" : i + 1}
-              </Link>
-              <span className="mt-3 rounded-detail border-2 border-ink bg-surface px-2 text-meta leading-tight" aria-hidden>{p.c.title}</span>
-              {p.c.placement_status && (
-                <span className={`mt-1 rounded-pill border-2 border-ink px-2 text-[0.75rem] font-bold ${PLACED[p.c.placement_status].cls}`} aria-hidden>
-                  {isCurrent ? "▶ Start here" : PLACED[p.c.placement_status].text}
-                </span>
-              )}
-              <span className="text-[0.95rem] tracking-widest text-discovery" aria-hidden>{st.map((on) => (on ? "★" : "☆")).join("")}</span>
-            </li>
-          );
-        })}
-      </ol>
-      {sideQuests.map((q) => (
-        <Link key={q.f.id} href={`/subjects/${subjectId}/roadmap/concepts/${q.f.id}`} aria-label={`Optional foundation: ${q.f.title}`}
-          className="node node-foundation absolute -translate-x-1/2 -translate-y-1/2" style={{ left: q.x, top: q.y }} title={`Optional refresher: ${q.f.title}`}>
-          {q.f.key}
-        </Link>
-      ))}
-    </div>
-  );
+function nodeClass(status: string) {
+  return status === "done" ? "node-applied" : status === "current" ? "node-progress node-current" : "node-new opacity-60 grayscale";
 }
 
 export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conceptId?: string }) {
@@ -147,15 +60,21 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
     }
   };
 
-  const suggested = data?.suggested_concept_id;
+  const journey = useMemo(() => (data?.units ? buildJourney(data.units) : []), [data]);
+  const byId = useMemo(() => Object.fromEntries(journey.map((m) => [m.c.id, m])), [journey]);
+  const currentMs = journey.find((m) => m.status === "current");
+  const suggested = currentMs?.c.id;   // the next milestone in order (the server suggestion may point further ahead)
+  const selected = conceptId ? byId[conceptId] : undefined;
+  const locked = ROADMAP_STRICT_GATING && selected?.status === "locked";
   const resume = data?.resume;
   const primary = conceptId || data?.placement?.required ? null : resume ? (
     <Link className="btn-primary" href={`/subjects/${subjectId}/sessions/${resume.session_id}${resume.status === "draft" ? "/setup" : ""}`}>▶ Resume “{resume.concept_title}”</Link>
   ) : suggested ? (
-    <button className="btn-primary" onClick={() => start(suggested)} disabled={busy}>Continue suggested concept</button>
+    <button className="btn-primary" onClick={() => start(suggested)} disabled={busy}>▶ Continue: {currentMs?.c.title}</button>
   ) : null;
   const allFoundations = data ? data.units.flatMap((u: any) => u.foundations) : [];
   const counts = data?.counts;
+  const selectedAchievedByEvidence = !!selected?.c?.evidence?.states?.some((s: string) => ACHIEVED_STATES.includes(s));
 
   return (
     <SubjectShell subjectId={subjectId} action={primary} crumb={conceptId ? "Concept" : "Roadmap"} parent={conceptId ? "roadmap" : undefined}>
@@ -169,7 +88,7 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
       {data && data.subject.status === "ready" && data.placement?.required && !conceptId && (
         <div className="hero p-6 md:p-10" data-screen="W01-locked">
           <div className="relative z-10 max-w-2xl space-y-3">
-            <span className="badge">🧪 Level test first</span>
+            <span className="badge"><Illo name="levelTest" size={20} /> Level test first</span>
             <h2 className="text-page-compact">Your roadmap is built on your level</h2>
             <p className="muted">Take the short level test first. Then this map shows what you already know (✓), where you start (▶) and what is left to learn.</p>
             <div className="flex flex-wrap gap-3">
@@ -191,7 +110,7 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
           <div className="min-w-0">
             {data.level && !conceptId && (
               <div className="game-card mb-5 flex flex-wrap items-center gap-3 p-4" data-testid="roadmap-level">
-                <span className="badge">{data.level.basis === "placement_test" ? "🧪" : "🌱"} Built on your level: <strong>{data.level.label}</strong>
+                <span className="badge"><Illo name={data.level.basis === "placement_test" ? "levelTest" : "scratch"} size={20} /> Built on your level: <strong>{data.level.label}</strong>
                   {data.level.basis === "placement_test" ? ` · ${data.level.score}/100` : ""}</span>
                 <span className="text-meta text-ink-muted">
                   {data.level.basis === "placement_test"
@@ -203,50 +122,55 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
             )}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-4">
-                <span className="ring" style={{ ["--p" as any]: counts?.concepts ? Math.round((100 * counts.applied) / counts.concepts) : 0 }}
-                  aria-label={`${counts?.applied} of ${counts?.concepts} levels applied independently`}><span>{counts?.applied}/{counts?.concepts}</span></span>
                 <div>
-                  <p className="font-bold">{counts?.applied} of {counts?.concepts} levels applied on your own</p>
-                  <p className="text-meta text-ink-muted">{counts?.started} started · ★ practised · ★★ explained · ★★★ applied without help</p>
+                  <p className="font-bold">Your journey · {journey.length} milestones</p>
+                  <p className="text-meta text-ink-muted">{counts?.started ?? 0} started · ★ practised · ★★ explained · ★★★ applied without help · the next milestone unlocks at ★★★</p>
                 </div>
               </div>
               <div role="group" aria-label="Roadmap view" className="flex gap-1">
-                <button className={view === "map" ? "chip !border-action" : "chip"} aria-pressed={view === "map"} onClick={() => choose("map")}>🗺 Map</button>
+                <button className={view === "map" ? "chip !border-action" : "chip"} aria-pressed={view === "map"} onClick={() => choose("map")}><Illo name="roadmap" size={20} /> Map</button>
                 <button className={view === "list" ? "chip !border-action" : "chip"} aria-pressed={view === "list"} onClick={() => choose("list")}>☰ List</button>
               </div>
             </div>
-            {data.units.map((u: any) => (
+            {view === "map" ? (
+              <RoadmapJourney units={data.units} subjectId={subjectId} conceptId={conceptId} foundations={allFoundations} />
+            ) : data.units.map((u: any) => (
               <section key={u.unit_no} aria-labelledby={`u-${u.unit_no}`} className="mt-8">
                 <div className="unit-banner flex items-center justify-between gap-3 px-5 py-4">
                   <h2 id={`u-${u.unit_no}`} className="text-section !text-[1.25rem]">Unit {u.unit_no}: {u.title}</h2>
-                  <span className="text-meta font-bold">{u.concepts.filter((c: any) => c.evidence.states.includes("applied_independently")).length}/{u.concepts.length} ★</span>
+                  <span className="text-meta font-bold">{u.concepts.filter((c: any) => byId[c.id]?.status === "done").length}/{u.concepts.length} ✓</span>
                 </div>
-                {view === "map" ? (
-                  <GameMap unit={u} subjectId={subjectId} conceptId={conceptId} suggested={suggested} allFoundations={allFoundations} />
-                ) : (
-                  <ol className="relative mt-4 space-y-4 border-l-4 border-border pl-6" aria-label={`Unit ${u.unit_no} path`}>
-                    {u.concepts.map((c: any) => (
+                <ol className="relative mt-4 space-y-4 border-l-4 border-border pl-6" aria-label={`Unit ${u.unit_no} path`}>
+                  {(u.concepts.length ? u.concepts : u.foundations).map((c: any) => {
+                    const m = byId[c.id];
+                    const st = m?.status || "locked";
+                    return (
                       <li key={c.id}>
-                        <Link href={`/subjects/${subjectId}/roadmap/concepts/${c.id}`} className="game-card flex min-h-[64px] items-center gap-4 p-3">
-                          <span className={`node !h-12 !w-12 !text-base ${nodeClass(c.evidence)}`} aria-hidden>{c.key}</span>
-                          <span className="min-w-0"><span className="block font-bold">{c.key} {c.title}{suggested === c.id ? <span className="ml-2 pill text-action-base">Suggested</span> : null}
-                            {c.placement_status && <span className={`ml-2 rounded-pill border-2 border-ink px-2 text-meta ${PLACED[c.placement_status].cls}`}>{PLACED[c.placement_status].text}</span>}</span>
-                            <span className="mt-1 block"><Evidence e={c.evidence} /></span></span>
+                        <Link href={`/subjects/${subjectId}/roadmap/concepts/${c.id}`}
+                          className={`game-card flex min-h-[64px] items-center gap-4 p-3 ${st === "locked" ? "opacity-70" : ""}`}
+                          aria-label={`Milestone ${(m?.index ?? 0) + 1}: ${c.title}. ${st === "done" ? "Completed" : st === "current" ? "Current" : "Locked"}`}>
+                          <span className={`node !h-12 !w-12 !text-base ${nodeClass(st)}`} aria-hidden>{st === "done" ? "✓" : st === "locked" ? "🔒" : (m?.index ?? 0) + 1}</span>
+                          <span className="min-w-0"><span className="block font-bold">{c.title}{st === "current" ? <span className="ml-2 pill text-action-base">You are here</span> : null}</span>
+                            <span className="mt-1 block">{st === "locked"
+                              ? <span className="text-meta text-ink-muted">Unlocks after “{m?.previous?.title}”</span>
+                              : st === "done" && !c.evidence?.states?.length && c.placement_status === "known"
+                                ? <span className="pill text-success bg-success-surface">✓ Known from level test</span>
+                                : <Evidence e={c.evidence} />}</span></span>
                         </Link>
                       </li>
-                    ))}
-                    {u.foundations.map((f: any) => (
-                      <li key={f.id}><Link className="btn-link text-meta" href={`/subjects/${subjectId}/roadmap/concepts/${f.id}`}>Optional foundation: {f.title}</Link></li>
-                    ))}
-                  </ol>
-                )}
+                    );
+                  })}
+                  {u.concepts.length > 0 && u.foundations.map((f: any) => (
+                    <li key={f.id}><Link className="btn-link text-meta" href={`/subjects/${subjectId}/roadmap/concepts/${f.id}`}>Optional side quest: {f.title}</Link></li>
+                  ))}
+                </ol>
               </section>
             ))}
           </div>
-          <aside aria-labelledby="insp-h" className="h-fit xl:sticky xl:top-20">
+          <aside aria-labelledby="insp-h" className="h-fit xl:sticky xl:top-28">
             {!conceptId ? (
               <div className="game-card space-y-3 p-5">
-                <Companion message="Tap any level to see what it is about. Nothing is locked — side quests (mint) are optional refreshers." />
+                <Companion message="Follow the road: each milestone lights up once you apply the previous one on your own. Diamond side quests are optional refreshers." />
                 {data.suggestion && (
                   <div className="rounded-detail bg-help-surface p-3">
                     <p className="text-meta font-bold text-help">{data.suggestion.kind === "side_quest" ? "Suggested side quest" : "Suggested next level"}</p>
@@ -274,6 +198,16 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
                       <Link className="btn-secondary !min-h-[44px] !px-3" href={`/subjects/${subjectId}/roadmap`} aria-label="Close inspector">✕</Link>
                     </div>
                     <p className="mt-2"><strong>Objective:</strong> {detail.data.concept.objective || "Not stated in the source."}</p>
+                    {selected && (
+                      <p className={`mt-3 rounded-detail p-3 text-meta font-bold ${selected.status === "locked" ? "bg-review-surface" : selected.status === "current" ? "bg-help-surface" : "bg-success-surface"}`}>
+                        {selected.status === "done"
+                          ? (selected.c.placement_status === "known" && !selectedAchievedByEvidence
+                              ? `✓ Milestone ${selected.index + 1} completed (known from level test)`
+                              : `✓ Milestone ${selected.index + 1} completed`)
+                          : selected.status === "current" ? `📍 Milestone ${selected.index + 1} — you are here. Apply it once without help to unlock the next one.`
+                          : `🔒 Milestone ${selected.index + 1} unlocks after “${selected.previous?.title}”.`}
+                      </p>
+                    )}
                     <div className="mt-3"><Evidence e={detail.data.evidence} /></div>
                     {detail.data.prerequisites.length > 0 && (
                       <div className="mt-4">
@@ -291,8 +225,11 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
                     ))}
                     {!detail.data.concept.citations.length && <p className="mt-3 text-meta"><span className="pill text-ink-muted">✦ AI-generated level — lesson grounded in open sources</span></p>}
                     <div className="mt-6 flex flex-col gap-2">
-                      <button className="btn-primary" onClick={() => start(conceptId)} disabled={busy}>Learn this concept</button>
-                      <button className="btn-secondary" onClick={() => start(conceptId, "practice")} disabled={busy}>Practice</button>
+                      {locked && currentMs && (
+                        <button className="btn-primary" onClick={() => start(currentMs.c.id)} disabled={busy}>Go to my current milestone</button>
+                      )}
+                      <button className={locked ? "btn-secondary" : "btn-primary"} onClick={() => start(conceptId)} disabled={busy || locked}>Learn this concept</button>
+                      <button className="btn-secondary" onClick={() => start(conceptId, "practice")} disabled={busy || locked}>Practice</button>
                     </div>
                   </>
                 )}

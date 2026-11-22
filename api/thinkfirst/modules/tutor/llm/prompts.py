@@ -212,7 +212,7 @@ LEVEL_DEPTH = (
     "<learner>.known concepts get a quick recap; <learner>.gaps get the fullest explanation. goal exam: add 'tip' "
     "blocks on what is typically asked and 'warning' blocks on classic traps. goal explore: add real-world "
     "connections. When it helps, take examples from <learner>.field (the student's speciality) without changing the subject. "
-    "Use the language of the source. Math in LaTeX between $...$. "
+    "Use the language of the source. Math in LaTeX between $...$ (inline) or $$...$$ (display), including inside 'formula' blocks — never leave bare LaTeX commands outside delimiters. "
 )
 
 REGISTRY.update({

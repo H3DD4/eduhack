@@ -8,6 +8,7 @@ import { AppShell } from "@/components/AppShell";
 import { ErrorBox, LiveRegion, Skeleton } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
+import { Illo } from "@/components/Illo";
 
 const PHASE: Record<string, string> = {
   queued: "Reading your file…", extracting: "Reading your file…", extracted: "Extracted", awaiting_confirmation: "Awaiting your confirmation",
@@ -108,7 +109,7 @@ export default function Setup() {
             {data.proposal && testFirst && !peek && (
               <div className="hero p-6 md:p-8" data-testid="test-first">
                 <div className="relative z-10 max-w-2xl space-y-3">
-                  <span className="badge">🧪 Step 2 of 4 · your level</span>
+                  <span className="badge"><Illo name="levelTest" size={20} /> Step 2 of 4 · your level</span>
                   <h2 className="text-page-compact">{concepts.length} concepts found. Now, a quick level test</h2>
                   <p className="muted">5–12 multiple-choice questions (~5 min). Your roadmap is then shown built on your level: what you already know, where you start, what is left.</p>
                   <div className="flex flex-wrap gap-3">

@@ -115,8 +115,7 @@ h3 {
 }
 
 code,
-.font-mono,
-.math-scroll {
+.font-mono {
   font-family: "JetBrains Mono", ui-monospace, monospace;
 }
 
@@ -467,7 +466,17 @@ input[type="checkbox"] {
 
 .math-scroll {
   overflow-x: auto;
+  overflow-y: hidden;
   max-width: 100%;
+}
+
+.katex {
+  letter-spacing: normal;
+  word-spacing: normal;
+}
+
+.math-display .katex-display {
+  margin: 0.25em 0;
 }
 
 .sr-only {

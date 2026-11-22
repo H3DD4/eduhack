@@ -113,17 +113,29 @@ def make_engine(url: str | None = None):
     url = url or get_settings().database_url
     if _is_sqlite(url):
         raw_path = url.split("sqlite:///", 1)[1] if "sqlite:///" in url else ":memory:"
-        tutor_db = ":memory:" if raw_path in ("", ":memory:") else f"{raw_path}.tutor_tracks.sqlite"
+        is_mem = raw_path in ("", ":memory:")
+        tutor_db = ":memory:" if is_mem else f"{raw_path}.tutor_tracks.sqlite"
         engine = create_engine(
             url,
-            connect_args={"check_same_thread": False},
+            connect_args={"check_same_thread": False, "timeout": 30},
             execution_options={"schema_translate_map": {s: None for s in MODULE_SCHEMAS}},
         )
 
         @event.listens_for(engine, "connect")
         def _fk_on(dbapi_conn, _):  # pragma: no cover - trivial
+            dbapi_conn.execute("PRAGMA busy_timeout=30000")
             dbapi_conn.execute("PRAGMA foreign_keys=ON")
+            if not is_mem:
+                row = dbapi_conn.execute("PRAGMA journal_mode").fetchone()
+                if not row or str(row[0]).lower() != "wal":
+                    dbapi_conn.execute("PRAGMA journal_mode=WAL")
+                dbapi_conn.execute("PRAGMA synchronous=NORMAL")
             dbapi_conn.execute(f"ATTACH DATABASE '{tutor_db}' AS tutor_tracks")
+            if not is_mem:
+                row = dbapi_conn.execute("PRAGMA tutor_tracks.journal_mode").fetchone()
+                if not row or str(row[0]).lower() != "wal":
+                    dbapi_conn.execute("PRAGMA tutor_tracks.journal_mode=WAL")
+                dbapi_conn.execute("PRAGMA tutor_tracks.synchronous=NORMAL")
 
     else:
         engine = create_engine(url, pool_pre_ping=True)
@@ -163,6 +175,7 @@ def _install_rls_hook(factory: sessionmaker) -> None:
 
 def get_db() -> Iterator[Session]:
     db = session_factory()()
+    db.info["is_request_session"] = True
     try:
         yield db
         db.commit()

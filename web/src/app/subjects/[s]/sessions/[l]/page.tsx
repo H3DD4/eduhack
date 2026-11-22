@@ -11,7 +11,7 @@ import { ExplainFlow } from "@/components/session/ExplainFlow";
 import { FocusSheet } from "@/components/session/FocusSheet";
 import { ProfessorPanel } from "@/components/session/ProfessorPanel";
 import { LearnStage, PracticeStage, RecallStage, TransferStage } from "@/components/session/Stages";
-import { Dialog, ErrorBox, SaveBadge, SaveState, Skeleton } from "@/components/ui";
+import { Dialog, ErrorBox, MathText, SaveBadge, SaveState, Skeleton } from "@/components/ui";
 import { api, ApiError, deviceId } from "@/lib/api";
 
 const STAGE_HELP: Record<string, string> = {
@@ -268,7 +268,7 @@ function Workspace() {
                 <div className="space-y-4">
                   {stage === "followup" && <p className="text-meta font-semibold text-help">One more question about that idea.</p>}
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <h2 id="st-h" tabIndex={-1} className="text-problem font-bold">{cur.prompt}</h2>
+                    <h2 id="st-h" tabIndex={-1} className="text-problem font-bold"><MathText text={cur.prompt} /></h2>
                     <SpeakButton text={cur.prompt} title={stage === "followup" ? "Follow-up question" : "Explain it back"} hint={view.concept.title} subjectId={s} taskId={cur.id} label="Speak prompt" />
                   </div>
                   {cur.context?.rubric && (

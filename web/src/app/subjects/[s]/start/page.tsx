@@ -9,8 +9,9 @@ import { SubjectShell } from "@/components/SubjectShell";
 import { ErrorBox, Skeleton } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
+import { Illo, type IlloName } from "@/components/Illo";
 
-const ICON: Record<string, string> = { roadmap: "🗺️", level: "🧪", summary: "📘", learn: "🚀" };
+const ICON: Record<string, IlloName> = { roadmap: "roadmap", level: "levelTest", summary: "summary", learn: "learn" };
 
 export default function LearningPath() {
   const { s } = useParams<{ s: string }>();
@@ -74,11 +75,11 @@ export default function LearningPath() {
         {data && (
           <>
             <div className="flex flex-wrap gap-2" aria-label="Your choices">
-              <span className="badge">{data.intent.goal === "exam" ? "🎯" : "🧭"} {data.intent.goal_label}
+              <span className="badge"><Illo name={data.intent.goal === "exam" ? "exam" : "explore"} size={20} /> {data.intent.goal_label}
                 {data.intent.days_to_exam != null && data.intent.days_to_exam >= 0 ? ` · exam in ${data.intent.days_to_exam} day(s)` : ""}</span>
-              <span className="badge">{data.intent.has_material ? `📄 ${data.intent.material.files} file(s) · ${data.intent.material.pages} page(s)` : "✨ Open sources"}</span>
+              <span className="badge"><Illo name={data.intent.has_material ? "course" : "sources"} size={20} />{data.intent.has_material ? ` ${data.intent.material.files} file(s) · ${data.intent.material.pages} page(s)` : " Open sources"}</span>
               {data.intent.prior_knowledge && (
-                <span className="badge">{data.intent.prior_knowledge === "some" ? "🧪 Level test" : "🌱 From scratch"}</span>
+                <span className="badge"><Illo name={data.intent.prior_knowledge === "some" ? "levelTest" : "scratch"} size={20} />{data.intent.prior_knowledge === "some" ? " Level test" : " From scratch"}</span>
               )}
             </div>
 
@@ -100,7 +101,7 @@ export default function LearningPath() {
                 <li key={st.key} className={`game-card flex flex-wrap items-center gap-4 p-5 ${st.state === "todo" ? "opacity-70" : ""}`}
                   data-step={st.key} data-state={st.state}>
                   <span aria-hidden className={`flex h-12 w-12 items-center justify-center rounded-pill border-2 border-ink text-[1.4rem] ${st.state === "done" ? "bg-hl" : st.state === "current" ? "bg-soft" : "bg-surface"}`}>
-                    {st.state === "done" ? "✓" : ICON[st.key]}
+                    {st.state === "done" ? "✓" : ICON[st.key] ? <Illo name={ICON[st.key]} size={34} /> : null}
                   </span>
                   <div className="min-w-[12rem] flex-1">
                     <p className="text-meta text-ink-muted">Step {i + 1} · {st.state === "done" ? "Done" : st.state === "current" ? "Now" : "Later"}</p>

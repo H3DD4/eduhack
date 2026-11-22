@@ -283,6 +283,8 @@ def test_model_json_is_repaired_not_dropped():
     out = _loads(raw)
     assert out == {"a": "$" + bs + "alpha + " + bs + "frac{1}{2}$, " + bs + "theta", "n": "x\ny"}
     assert _loads('Sure: {"k": [1]} done') == {"k": [1]}
+    lp = _loads('{"m": "' + bs + 'begin{pmatrix}1 & 0\\\\ 0 & 1' + bs + 'end{pmatrix}", "s": "' + bs + 'text{s.t.} x ' + bs + 'Rightarrow y"}')
+    assert lp == {"m": f"{bs}begin{{pmatrix}}1 & 0\\ 0 & 1{bs}end{{pmatrix}}", "s": f"{bs}text{{s.t.}} x {bs}Rightarrow y"}
 
 
 JAVA = """Unit 1: Java basics
