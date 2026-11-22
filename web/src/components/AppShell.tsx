@@ -188,8 +188,8 @@ export function AppShell({ children, crumbs = [], focused = false, requireSetup 
       <a href="#main" className="skip-link btn-secondary">Skip to content</a>
       <VoiceGuideButton />
       {!focused && (
-        <header className={`sticky top-0 z-30 px-3 pt-3 transition-[padding] duration-200 md:px-6 ${scrolled ? "md:pt-2" : "md:pt-5"}`}>
-          <nav aria-label="Main" className="topnav mx-auto flex max-w-overview items-center justify-between gap-3 py-2 pl-4 pr-2">
+        <header className={`sticky top-0 z-30 px-3 pt-3 transition-[padding] duration-200 md:px-3 ${scrolled ? "md:pt-2" : "md:pt-5"}`}>
+          <nav aria-label="Main" className="topnav mx-auto flex max-w-[1360px] items-center justify-between gap-3 py-2 pl-4 pr-2">
             <Link href="/today" aria-label="ThinkFirst home" className="shrink-0 transition-transform duration-150 hover:-rotate-2 hover:scale-105"><Logo size={34} /></Link>
             <ul className="hidden items-center gap-1 md:flex">
               {GLOBAL.map((g) => (
