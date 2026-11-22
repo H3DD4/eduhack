@@ -26,6 +26,10 @@ CSRF_EXEMPT = {"/api/auth/google/callback"}
 
 def create_app() -> FastAPI:
     setup_logging()
+    from thinkfirst.config import get_settings
+    if get_settings().database_url.startswith("sqlite"):
+        from thinkfirst.seed import ensure_schema
+        ensure_schema()
     app = FastAPI(title="ThinkFirst API", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.add_exception_handler(AppError, app_error_handler)  # type: ignore[arg-type]
 

@@ -22,10 +22,24 @@ DEMO_PASSWORD = "demo-password"
 
 def ensure_schema() -> None:
     import thinkfirst.models  # noqa: F401
+    from sqlalchemy import text
+    from tutor.store.sqlalchemy_store import metadata as tutor_tracks_metadata
 
     engine = get_engine()
     if engine.dialect.name == "sqlite":
         Base.metadata.create_all(engine)
+        tutor_tracks_metadata.create_all(engine)
+        insp = inspect(engine)
+        existing_tables = set(insp.get_table_names())
+        with engine.begin() as conn:
+            for table in Base.metadata.sorted_tables:
+                if table.name not in existing_tables:
+                    continue
+                existing_cols = {c["name"] for c in insp.get_columns(table.name)}
+                for col in table.columns:
+                    if col.name not in existing_cols:
+                        col_type = col.type.compile(dialect=engine.dialect)
+                        conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {col_type}'))
     elif not inspect(engine).has_table("users", schema="identity"):
         raise SystemExit("Database schema missing: run `python -m alembic upgrade head` first.")
 
