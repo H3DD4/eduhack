@@ -57,7 +57,7 @@ function Setup({ track, reload }: { track: Track; reload: () => void }) {
       {err && <p className="rounded-control bg-review-surface p-3">{err}</p>}
 
       {step <= 1 && (
-        <Section title="Your documents">
+        <Section title="Your documents (optional)">
           <UploadDrop onFiles={upload} busy={busy} />
           {!!track.documents?.length && (
             <ul className="grid gap-2 md:grid-cols-2">
@@ -73,10 +73,14 @@ function Setup({ track, reload }: { track: Track; reload: () => void }) {
               ))}
             </ul>
           )}
-          <p className="text-meta text-ink-muted">Tip: add a past exam or an exercise sheet, so the tutor copies its structure and style.</p>
-          <button className="btn-primary" disabled={(!track.documents?.length && track.valley === "revision") || run?.status === "running"} onClick={() => start("prepare")}>
-            Read my course
-          </button>
+          <p className="text-meta text-ink-muted">
+            Documents are optional. Upload your course PDFs, exercise sheets, or past exams so the tutor copies their style — or continue directly from your topic and chapters.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <button className="btn-primary" disabled={run?.status === "running"} onClick={() => start("prepare")}>
+              {track.documents?.length ? "Read my course" : "Continue without documents (build from topic)"}
+            </button>
+          </div>
         </Section>
       )}
       {run && (run.flow === "prepare" ? step <= 1 || run.status === "failed" : step >= 3) && <RunProgress run={run} onResume={resume} />}

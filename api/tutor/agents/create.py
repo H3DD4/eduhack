@@ -222,9 +222,14 @@ def build_revision_pack(ctx: Ctx, state: dict[str, Any]) -> dict[str, Any]:
     concepts = ctx.concepts(track_id)
     scope = track.get("chapters") or []
     learner = ctx.learner(track_id)
+    scope_norm = [s.strip().lower() for s in scope if s.strip()]
     chapters: dict[str, list[dict[str, Any]]] = {}
     for c in concepts:
-        if not scope or c["chapter"] in scope:
+        ch_low = (c["chapter"] or "").strip().lower()
+        if not scope_norm or any(s in ch_low or ch_low in s for s in scope_norm):
+            chapters.setdefault(c["chapter"], []).append(c)
+    if not chapters:
+        for c in concepts:
             chapters.setdefault(c["chapter"], []).append(c)
 
     def chapter_priority(cs):

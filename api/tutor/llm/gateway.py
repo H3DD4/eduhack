@@ -175,7 +175,7 @@ class GeminiNativeProvider:
                     continue
                 raise LLMError("RETRYABLE_503") from exc
             last_status = r.status
-            if r.status in (429, 503) and idx + 1 < len(models):
+            if r.status in (400, 404, 429, 500, 502, 503) and idx + 1 < len(models):
                 continue
             if r.status == 429 or r.status >= 500:
                 raise LLMError(f"RETRYABLE_{r.status}")
@@ -189,6 +189,26 @@ class GeminiNativeProvider:
             u = data.get("usageMetadata", {})
             return text, LLMUsage(int(u.get("promptTokenCount", 0)), int(u.get("candidatesTokenCount", 0)))
         raise LLMError(f"RETRYABLE_{last_status}")
+
+
+class FallbackChainProvider:
+    """Tries multiple configured live providers in order (e.g. Gemini -> Groq -> Anthropic -> Ollama)."""
+
+    def __init__(self, providers: list[Provider]):
+        self.providers = providers
+        self.name = providers[0].name if providers else "mock"
+
+    def complete(self, system: str, user: str, *, tier: str, max_tokens: int) -> tuple[str, LLMUsage]:
+        last_err: Exception | None = None
+        for p in self.providers:
+            try:
+                return p.complete(system, user, tier=tier, max_tokens=max_tokens)
+            except Exception as exc:  # noqa: BLE001
+                last_err = exc
+                continue
+        if isinstance(last_err, LLMError):
+            raise last_err
+        raise LLMError("RETRYABLE_503")
 
 
 # --------------------------------------------------------------------------------------------- gateway
@@ -216,7 +236,7 @@ class LLM:
             return out
         user = render_user(task, variables)
         last_err = "UNKNOWN"
-        for attempt in range(3):
+        for attempt in range(2):
             try:
                 text, usage = self.provider.complete(task.system, user, tier=tier or task.tier,
                                                      max_tokens=task.max_tokens)
@@ -227,17 +247,20 @@ class LLM:
                 return out
             except LLMError as e:
                 last_err = e.code
-                if e.code in ("HTTP_402", "RETRYABLE_503", "RETRYABLE_429") and self.fallback_to_mock and self.mock is not None:
-                    out = self.mock.run(task_name, variables)
-                    self._check(task, out)
-                    return out
-                if not e.code.startswith("RETRYABLE"):
+                if e.code == "REFUSED":
                     raise
-                time.sleep(1.5 * (attempt + 1))
+                if not e.code.startswith("RETRYABLE"):
+                    break
+                time.sleep(1.0 * (attempt + 1))
             except (ValueError, KeyError) as e:  # bad JSON or missing keys: retry once with the reason
                 last_err = f"INVALID_OUTPUT:{e}"
                 user = f"{user}\n\nYour previous reply was not valid ({e}). Reply with the JSON object only."
+            except Exception as e:  # noqa: BLE001
+                last_err = f"NETWORK:{type(e).__name__}"
+                break
         if self.fallback_to_mock and self.mock is not None:
+            log.warning("LLM provider %s failed with %s on %s; falling back to offline adapter",
+                        self.name, last_err, task_name)
             out = self.mock.run(task_name, variables)
             self._check(task, out)
             return out
@@ -256,26 +279,37 @@ def build_llm(s: TutorSettings, *, meter: Meter | None = None) -> LLM:
     from .mock import MockLLM
 
     p = s.llm_provider
-    if p == "auto":
-        p = ("anthropic" if s.anthropic_api_key else "openai" if s.openai_api_key else
-             "groq" if s.groq_api_key else "gemini" if s.gemini_api_key else
-             "ollama" if s.ollama_api_key else "mock")
-    provider: Provider | None
-    if p == "anthropic" and s.anthropic_api_key:
-        provider = AnthropicProvider(s)
-    elif p == "openai" and s.openai_api_key:
-        provider = OpenAICompatProvider("openai", "https://api.openai.com/v1", s.openai_api_key,
-                                        s.openai_model_large, s.openai_model_small, s.llm_timeout_s)
-    elif p == "groq" and s.groq_api_key:
-        provider = OpenAICompatProvider("groq", "https://api.groq.com/openai/v1", s.groq_api_key,
-                                        s.groq_model, s.groq_model, s.llm_timeout_s)
-    elif p == "gemini" and s.gemini_api_key:
-        provider = GeminiNativeProvider(s)
-    elif p == "ollama":
-        base = s.ollama_url.rstrip("/")
-        v1 = base if base.endswith("/v1") else f"{base}/v1"
-        provider = OpenAICompatProvider("ollama", v1, s.ollama_api_key, s.ollama_model, s.ollama_model,
-                                        max(s.llm_timeout_s, 180))
-    else:
-        provider = None
+    if p == "mock":
+        return LLM(None, meter=meter, mock=MockLLM(), fallback_to_mock=s.fallback_to_mock)
+
+    candidates: list[Provider] = []
+
+    def _add(kind: str) -> None:
+        if kind == "anthropic" and s.anthropic_api_key:
+            candidates.append(AnthropicProvider(s))
+        elif kind == "openai" and s.openai_api_key:
+            candidates.append(OpenAICompatProvider("openai", "https://api.openai.com/v1", s.openai_api_key,
+                                                   s.openai_model_large, s.openai_model_small, s.llm_timeout_s))
+        elif kind == "gemini" and s.gemini_api_key:
+            candidates.append(GeminiNativeProvider(s))
+        elif kind == "groq" and s.groq_api_key:
+            for gm in dict.fromkeys([s.groq_model, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]):
+                if gm:
+                    candidates.append(OpenAICompatProvider("groq", "https://api.groq.com/openai/v1", s.groq_api_key,
+                                                           gm, gm, s.llm_timeout_s))
+        elif kind == "ollama" and (s.ollama_api_key or p == "ollama"):
+            base = s.ollama_url.rstrip("/")
+            v1 = base if base.endswith("/v1") else f"{base}/v1"
+            candidates.append(OpenAICompatProvider("ollama", v1, s.ollama_api_key, s.ollama_model, s.ollama_model,
+                                                   max(s.llm_timeout_s, 180)))
+
+    order = ["gemini", "groq", "anthropic", "openai", "ollama"]
+    if p in order:
+        order = [p] + [x for x in order if x != p]
+    for kind in order:
+        _add(kind)
+
+    provider: Provider | None = (
+        candidates[0] if len(candidates) == 1 else FallbackChainProvider(candidates) if candidates else None
+    )
     return LLM(provider, meter=meter, mock=MockLLM(), fallback_to_mock=s.fallback_to_mock)

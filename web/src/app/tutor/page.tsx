@@ -7,7 +7,7 @@ import { useApi } from "@/lib/hooks";
 import { LEVEL_LABEL, type Track } from "@/lib/tutor";
 
 const STATUS: Record<string, string> = {
-  created: "Add documents", ingesting: "Reading your course…", awaiting_level: "Level check", probing: "Level check",
+  created: "Ready to prepare (docs optional)", ingesting: "Reading your course…", awaiting_level: "Level check", probing: "Level check",
   levelled: "Ready to build", building: "Building…", ready: "Ready", failed: "Needs attention",
 };
 

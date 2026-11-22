@@ -129,3 +129,58 @@ def test_subject_to_agentic_tutor_bridge_and_two_valleys(db_session, tmp_path):
     lesson = svc.lesson(user.id, track_sk["id"], pages[0]["slug"])
     assert lesson["artifact"]["type"] == "lesson"
     assert len(lesson["artifact"]["content"]["sections"]) >= 3
+
+
+def test_track_without_uploaded_documents_and_http_404_llm_fallback(db_session, tmp_path):
+    """Uploading a document is optional in both Valley 1 (revision) and Valley 2 (skills),
+    and an HTTP_404 from an upstream LLM provider during ingest falls back cleanly without failing the run."""
+    from tutor.llm.gateway import LLM, LLMError
+
+    db = db_session
+    user = identity.register(db, "nodocs@example.com", "password123", "NoDocs")
+
+    store = SQLAlchemyStore(dbmod.session_factory(), blob=LocalStorage(str(tmp_path / "tutor-blobs-nodocs")))
+    settings = TutorSettings(
+        store_backend="sqlalchemy",
+        llm_provider="mock",
+        embedder="hashing",
+        reranker="none",
+        web_research=False,
+        job_mode="inline",
+        blob_dir=str(tmp_path / "tutor-blobs-nodocs"),
+    )
+    svc = build_service(settings, store=store)
+
+    # Simulate an upstream LLM provider that raises HTTP_404 on every call
+    class Broken404Provider:
+        name = "broken404"
+
+        def complete(self, system: str, user: str, *, tier: str, max_tokens: int):
+            raise LLMError("HTTP_404")
+
+    svc.ctx.llm = LLM(Broken404Provider(), mock=svc.ctx.llm.mock, fallback_to_mock=True)
+
+    # Create a Valley 1 Exam Revision track with ZERO uploaded documents
+    track = svc.create_track(
+        user.id,
+        valley="revision",
+        title="Maths — Dérivation et Variations",
+        subject="Mathématiques",
+        goal="Réussir le DS sur la dérivation",
+        chapters=["Nombre dérivé et tangente", "Opérations sur les dérivées", "Variations et extremums"],
+        allow_web=False,
+        language="fr",
+    )
+    run_prep = svc.start_flow(user.id, track["id"], "prepare")
+    assert run_prep["status"] == "succeeded", run_prep
+    t_after = svc.get_track(user.id, track["id"])
+    assert t_after["status"] == "awaiting_level"
+    assert len(t_after["documents"]) == 1
+    assert len(t_after["concepts"]) >= 2
+
+    svc.declare_level(user.id, track["id"], "intermediate", skip_probe=True)
+    run_build = svc.start_flow(user.id, track["id"], "build")
+    assert run_build["status"] == "succeeded", run_build
+    arts = svc.artifacts(user.id, track["id"])
+    assert {"resume", "fiches", "qcm", "quiz", "exercises"} <= {a["type"] for a in arts}
+

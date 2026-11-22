@@ -174,8 +174,6 @@ class TutorService:
             flow = "revision" if t["valley"] == "revision" else "skills"
         if flow not in FLOWS:
             raise TutorError("unknown flow")
-        if flow == "prepare" and not self.store.list("documents", track_id=track_id) and t["valley"] == "revision":
-            raise TutorError("Upload at least one course document first.", code="NO_DOCUMENTS")
         if flow in ("revision", "skills") and t["status"] not in ("levelled", "ready", "awaiting_level", "failed"):
             raise Conflict("Finish the level check first.", code="LEVEL_FIRST")
         run = {"id": new_id(), "track_id": track_id, "owner_id": owner_id, "flow": flow, "status": "queued",

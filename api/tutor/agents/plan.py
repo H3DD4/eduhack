@@ -43,7 +43,12 @@ def plan_revision(ctx: Ctx, state: dict[str, Any], *, today: date | None = None,
     days_left = max(1, (exam - today).days)
     learner = ctx.learner(track_id)
     scope = t.get("chapters") or []
-    concepts = [c for c in ctx.concepts(track_id) if not scope or c["chapter"] in scope]
+    all_concepts = ctx.concepts(track_id)
+    scope_norm = [s.strip().lower() for s in scope if s.strip()]
+    concepts = [
+        c for c in all_concepts
+        if not scope_norm or any(s in (c["chapter"] or "").lower() or (c["chapter"] or "").lower() in s for s in scope_norm)
+    ] or all_concepts
     urgency = 1 + 3 / days_left
     pri = []
     for c in concepts:

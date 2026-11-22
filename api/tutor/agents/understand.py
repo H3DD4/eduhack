@@ -34,6 +34,83 @@ def load_parsed(ctx: Ctx, doc_id: str) -> ParsedDoc | None:
 
 
 # ------------------------------------------------------------------------------------------- ingest
+def _synthesize_topic_markdown(track: dict[str, Any]) -> tuple[str, str]:
+    """Build a structured topic foundation guide when the student starts a track without uploading documents."""
+    title = (track.get("title") or "Course Topic").strip()
+    subject = (track.get("subject") or title).strip()
+    goal = (track.get("goal") or f"Master {title}").strip()
+    chapters = [c.strip() for c in (track.get("chapters") or []) if c.strip()]
+    text_sample = f"{title} {subject} {goal} {' '.join(chapters)}"
+    lang = detect_language(text_sample) if len(text_sample.split()) >= 4 else (track.get("language") or "fr")
+    if not chapters:
+        if lang == "fr":
+            chapters = [
+                f"Fondamentaux et définitions de {title}",
+                f"Propriétés essentielles et méthodes en {subject}",
+                f"Applications pratiques et résolution de problèmes ({title})",
+                f"Pièges classiques et synthèse ({subject})",
+            ]
+        else:
+            chapters = [
+                f"Core Concepts and Definitions of {title}",
+                f"Key Properties and Methods in {subject}",
+                f"Practical Applications and Problem Solving ({title})",
+                f"Common Pitfalls and Synthesis ({subject})",
+            ]
+
+    lines = []
+    for idx, ch in enumerate(chapters, 1):
+        if lang == "fr":
+            lines.extend([
+                f"# {ch}",
+                f"## {idx}.1 Définition et principe fondamental — {ch}",
+                (
+                    f"Dans le cadre de {subject}, la notion de {ch} constitue un pilier essentiel pour atteindre "
+                    f"l'objectif : {goal}. Une définition rigoureuse permet d'identifier les hypothèses, le domaine "
+                    f"de validité et la structure logique du problème avant d'appliquer une transformation."
+                ),
+                f"## {idx}.2 Méthode de résolution et propriétés — {ch}",
+                (
+                    f"Pour résoudre un exercice portant sur {ch}, on procède étape par étape : "
+                    f"1) Identifier les données et la question posée dans {subject}. "
+                    f"2) Appliquer la propriété ou la formule adaptée à {ch} en justifiant chaque équivalence. "
+                    f"3) Vérifier la cohérence du résultat et les cas particuliers."
+                ),
+                f"## {idx}.3 Exemple corrigé et erreurs fréquentes — {ch}",
+                (
+                    f"Exemple d'application sur {ch} : lorsqu'on applique la méthode de {subject} à un cas concret, "
+                    f"chaque terme doit être traité avec soin. Une erreur fréquente consiste à négliger une condition "
+                    f"initiale ou à confondre {ch} avec une propriété voisine."
+                ),
+                "",
+            ])
+        else:
+            lines.extend([
+                f"# {ch}",
+                f"## {idx}.1 Core Definition and Principle — {ch}",
+                (
+                    f"In {subject}, understanding {ch} is essential for achieving the goal: {goal}. "
+                    f"A clear definition establishes the assumptions, domain of validity, and structure of the "
+                    f"problem before applying any rule or transformation."
+                ),
+                f"## {idx}.2 Step-by-Step Method and Properties — {ch}",
+                (
+                    f"To solve problems involving {ch}, follow three steps: "
+                    f"1) Identify the known quantities and target condition in {subject}. "
+                    f"2) Apply the governing property or rule for {ch} while justifying each step. "
+                    f"3) Verify edge cases and check that the final answer is consistent."
+                ),
+                f"## {idx}.3 Worked Example and Common Mistakes — {ch}",
+                (
+                    f"Worked example for {ch}: when applying {subject} principles to a concrete scenario, "
+                    f"verify every term carefully. A common mistake is skipping boundary conditions or "
+                    f"confusing {ch} with a related rule."
+                ),
+                "",
+            ])
+    return "\n".join(lines), lang
+
+
 def ingest_documents(ctx: Ctx, state: dict[str, Any]) -> dict[str, Any]:
     track_id = state["track_id"]
     track = ctx.track(track_id)
@@ -71,11 +148,41 @@ def ingest_documents(ctx: Ctx, state: dict[str, Any]) -> dict[str, Any]:
                  pages=len(parsed.pages), ocr_pages=parsed.ocr_pages, error=None)
         ctx.store.put("documents", d)
         indexed += 1
+    if indexed == 0:
+        # Document upload is optional: build a topic foundation syllabus from the track's title/subject/goal/chapters
+        md_text, synth_lang = _synthesize_topic_markdown(track)
+        langs.append(synth_lang)
+        parsed = parse("topic-guide.md", md_text.encode("utf-8"))
+        doc_id = new_id()
+        ctx.store.put_blob(_parsed_key(doc_id), json.dumps({"title": track["title"], "pages": [
+            {"number": p.number, "text": p.text, "headings": p.headings, "ocr": p.ocr} for p in parsed.pages]},
+            ensure_ascii=False).encode())
+        raws = chunk_document(parsed, target_words=ctx.settings.chunk_words, overlap=ctx.settings.chunk_overlap)
+        chunks = [{"id": new_id(), "track_id": track_id, "owner_id": track["owner_id"], "document_id": doc_id,
+                   "web_source_id": None, "origin": "course", "doc_type": "course", "text": r.text, "page": r.page,
+                   "section": r.section, "ord": r.ord, "concept_ids": []} for r in raws]
+        ctx.kb.add(chunks)
+        synth_doc = {
+            "id": doc_id,
+            "track_id": track_id,
+            "owner_id": track["owner_id"],
+            "filename": f"{slugify(track['title']) or 'topic'}-syllabus.md",
+            "mime": "text/markdown",
+            "sha256": doc_id,
+            "blob_key": "",
+            "doc_type": "course",
+            "title": f"{track['title']} (Topic Guide)",
+            "pages": len(parsed.pages),
+            "status": "indexed",
+            "error": None,
+            "ocr_pages": 0,
+            "created_at": now_iso(),
+        }
+        ctx.store.put("documents", synth_doc)
+        indexed = 1
     if langs:
         lang = max(set(langs), key=langs.count)
         ctx.save_track(ctx.track(track_id), language=lang)
-    if indexed == 0:
-        raise RuntimeError("NO_READABLE_DOCUMENT")
     ctx.event("content.indexed", {"track_id": track_id, "documents": indexed})
     return {"documents_indexed": indexed, "documents_failed": failed}
 
@@ -183,10 +290,16 @@ def _map_blueprint_concepts(ctx: Ctx, track_id: str, bp: dict[str, Any], concept
 
 def _inferred_blueprint(fp: dict[str, Any], concepts: list[dict[str, Any]], scope: list[str]) -> dict[str, Any]:
     """No past exam: a 20-point, 2-hour exam shaped like the course's own exercise types."""
-    chapters = []
+    scope_norm = [s.strip().lower() for s in scope if s.strip()]
+    chapters: list[str] = []
     for c in concepts:
-        if (not scope or c["chapter"] in scope) and c["chapter"] not in chapters:
+        ch_low = (c["chapter"] or "").strip().lower()
+        if (not scope_norm or any(s in ch_low or ch_low in s for s in scope_norm)) and c["chapter"] not in chapters:
             chapters.append(c["chapter"])
+    if not chapters:
+        for c in concepts:
+            if c["chapter"] and c["chapter"] not in chapters:
+                chapters.append(c["chapter"])
     chapters = chapters[:4] or ["Cours"]
     qtypes = sorted((fp.get("question_types") or {"calculation": 1}).items(), key=lambda x: -x[1])
     main = [q for q, _ in qtypes[:2]] or ["calculation"]
