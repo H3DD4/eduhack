@@ -46,7 +46,7 @@ class HashingEmbedder:
             for w in toks:
                 i, s = self._h("w:" + w)
                 v[i] += s * 1.0
-            for a, b in zip(toks, toks[1:]):
+            for a, b in zip(toks, toks[1:], strict=False):
                 i, s = self._h(f"b:{a}_{b}")
                 v[i] += s * 0.6
             flat = " ".join(norm(w) for w in toks)
@@ -92,7 +92,7 @@ class HFInferenceEmbedder:
         out = []
         for v in data:
             if v and isinstance(v[0], list):  # token embeddings -> mean pool
-                v = [sum(col) / len(v) for col in zip(*v)]
+                v = [sum(col) / len(v) for col in zip(*v, strict=False)]
             out.append(_normalize([float(x) for x in v]))
         self.dim = len(out[0]) if out else self.dim
         return out

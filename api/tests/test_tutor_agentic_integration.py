@@ -1,4 +1,4 @@
-"""End-to-end integration tests for the merged Agentic Tutor system (`tutor` + `thinkfirst.modules.tutor_tracks`
+"""End-to-end integration tests for the merged Agentic Tutor system (`tutor` + `thinkfirst.modules.tutor.tracks`
 + enhanced `thinkfirst.modules.tutor.packs`)."""
 
 from __future__ import annotations
@@ -6,11 +6,10 @@ from __future__ import annotations
 import pytest
 
 from thinkfirst.core import db as dbmod
-from thinkfirst.core import jobs
 from thinkfirst.core.storage import LocalStorage, set_storage
 from thinkfirst.modules.rag.ingestion import service as ingestion
 from thinkfirst.modules.tutor import packs
-from thinkfirst.modules.tutor_tracks import router as tutor_tracks_router
+from thinkfirst.modules.tutor.tracks import router as tutor_tracks_router
 from thinkfirst.platform.identity import service as identity
 from thinkfirst.platform.workspaces import service as workspaces
 from tutor.config import TutorSettings

@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
-import { tutor } from "@/lib/tutor";
 import { SubjectShell } from "./SubjectShell";
 import { Companion, ErrorBox, EvidencePill, Skeleton } from "./ui";
 
@@ -37,6 +36,12 @@ function nodeClass(e: any) {
   if (e?.states?.length) return "node-progress";
   return "node-new";
 }
+
+const PLACED: Record<string, { text: string; cls: string }> = {
+  known: { text: "✓ Known (test)", cls: "bg-hl" },
+  partly: { text: "◐ Partly known", cls: "bg-soft" },
+  to_learn: { text: "To learn", cls: "bg-surface" },
+};
 
 function GameMap({ unit, subjectId, conceptId, suggested, allFoundations }:
   { unit: any; subjectId: string; conceptId?: string; suggested?: string; allFoundations: any[] }) {
@@ -93,12 +98,17 @@ function GameMap({ unit, subjectId, conceptId, suggested, allFoundations }:
           return (
             <li key={p.c.id} className="absolute flex w-[180px] -translate-x-1/2 -translate-y-[42px] flex-col items-center text-center" style={{ left: p.x, top: p.y }}>
               <Link href={`/subjects/${subjectId}/roadmap/concepts/${p.c.id}`}
-                aria-label={`${p.c.key} ${p.c.title}. ${p.c.evidence.highest_text}${isCurrent ? ". Suggested next" : ""}`}
+                aria-label={`${p.c.key} ${p.c.title}. ${p.c.placement_status ? PLACED[p.c.placement_status].text + ". " : ""}${p.c.evidence.highest_text}${isCurrent ? ". Suggested next" : ""}`}
                 aria-current={conceptId === p.c.id ? "true" : undefined}
                 className={`node ${nodeClass(p.c.evidence)} ${isCurrent ? "node-current" : ""} ${conceptId === p.c.id ? "ring-4 ring-focus" : ""}`}>
-                {p.c.evidence?.states?.includes("applied_independently") ? "★" : i + 1}
+                {p.c.evidence?.states?.includes("applied_independently") ? "★" : p.c.placement_status === "known" ? "✓" : i + 1}
               </Link>
               <span className="mt-3 rounded-detail border-2 border-ink bg-surface px-2 text-meta leading-tight" aria-hidden>{p.c.title}</span>
+              {p.c.placement_status && (
+                <span className={`mt-1 rounded-pill border-2 border-ink px-2 text-[0.75rem] font-bold ${PLACED[p.c.placement_status].cls}`} aria-hidden>
+                  {isCurrent ? "▶ Start here" : PLACED[p.c.placement_status].text}
+                </span>
+              )}
               <span className="text-[0.95rem] tracking-widest text-discovery" aria-hidden>{st.map((on) => (on ? "★" : "☆")).join("")}</span>
             </li>
           );
@@ -137,21 +147,9 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
     }
   };
 
-  const launchTutorTrack = async (valley: "revision" | "skills") => {
-    setBusy(true);
-    setErr(null);
-    try {
-      const t = await tutor.fromSubject(subjectId, { valley });
-      router.push(`/tutor/${t.id}`);
-    } catch (e: any) {
-      setErr(e.message);
-      setBusy(false);
-    }
-  };
-
   const suggested = data?.suggested_concept_id;
   const resume = data?.resume;
-  const primary = conceptId ? null : resume ? (
+  const primary = conceptId || data?.placement?.required ? null : resume ? (
     <Link className="btn-primary" href={`/subjects/${subjectId}/sessions/${resume.session_id}${resume.status === "draft" ? "/setup" : ""}`}>▶ Resume “{resume.concept_title}”</Link>
   ) : suggested ? (
     <button className="btn-primary" onClick={() => start(suggested)} disabled={busy}>Continue suggested concept</button>
@@ -168,9 +166,41 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
         <div className="card"><p>Confirm this subject&apos;s roadmap to see the map.</p>
           <Link className="btn-primary mt-4" href={`/subjects/${subjectId}/setup`}>Review roadmap</Link></div>
       )}
-      {data && data.subject.status === "ready" && (
+      {data && data.subject.status === "ready" && data.placement?.required && !conceptId && (
+        <div className="hero p-6 md:p-10" data-screen="W01-locked">
+          <div className="relative z-10 max-w-2xl space-y-3">
+            <span className="badge">🧪 Level test first</span>
+            <h2 className="text-page-compact">Your roadmap is built on your level</h2>
+            <p className="muted">Take the short level test first. Then this map shows what you already know (✓), where you start (▶) and what is left to learn.</p>
+            <div className="flex flex-wrap gap-3">
+              <Link className="btn-primary" href={`/subjects/${subjectId}/diagnostic`}>
+                {data.placement.state === "preparing" ? "Open the level test (questions almost ready)" : data.placement.state === "in_progress" ? "Continue the level test" : "Take the level test"}
+              </Link>
+              <button className="btn-secondary" disabled={busy} onClick={async () => {
+                setBusy(true);
+                await api(`/subjects/${subjectId}/intent`, { method: "PATCH", json: { prior_knowledge: "none" } }).catch((e) => setErr(e.message));
+                setBusy(false);
+                reload();
+              }}>Skip the test — start from scratch</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {data && data.subject.status === "ready" && (!data.placement?.required || conceptId) && (
         <div className="grid gap-6 xl:grid-cols-[1fr_340px]" data-screen={conceptId ? "W06" : "W01"}>
           <div className="min-w-0">
+            {data.level && !conceptId && (
+              <div className="game-card mb-5 flex flex-wrap items-center gap-3 p-4" data-testid="roadmap-level">
+                <span className="badge">{data.level.basis === "placement_test" ? "🧪" : "🌱"} Built on your level: <strong>{data.level.label}</strong>
+                  {data.level.basis === "placement_test" ? ` · ${data.level.score}/100` : ""}</span>
+                <span className="text-meta text-ink-muted">
+                  {data.level.basis === "placement_test"
+                    ? `${data.level.known} concept(s) already known (✓), ${data.level.to_learn} to learn. Practice difficulty starts at your level.`
+                    : "Starting from scratch: every level is new and explained step by step."}
+                </span>
+                <Link className="btn-link ml-auto" href={`/subjects/${subjectId}/start#level`}>Level details</Link>
+              </div>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-4">
                 <span className="ring" style={{ ["--p" as any]: counts?.concepts ? Math.round((100 * counts.applied) / counts.concepts) : 0 }}
@@ -199,7 +229,8 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
                       <li key={c.id}>
                         <Link href={`/subjects/${subjectId}/roadmap/concepts/${c.id}`} className="game-card flex min-h-[64px] items-center gap-4 p-3">
                           <span className={`node !h-12 !w-12 !text-base ${nodeClass(c.evidence)}`} aria-hidden>{c.key}</span>
-                          <span className="min-w-0"><span className="block font-bold">{c.key} {c.title}{suggested === c.id ? <span className="ml-2 pill text-action-base">Suggested</span> : null}</span>
+                          <span className="min-w-0"><span className="block font-bold">{c.key} {c.title}{suggested === c.id ? <span className="ml-2 pill text-action-base">Suggested</span> : null}
+                            {c.placement_status && <span className={`ml-2 rounded-pill border-2 border-ink px-2 text-meta ${PLACED[c.placement_status].cls}`}>{PLACED[c.placement_status].text}</span>}</span>
                             <span className="mt-1 block"><Evidence e={c.evidence} /></span></span>
                         </Link>
                       </li>
@@ -227,20 +258,9 @@ export function RoadmapView({ subjectId, conceptId }: { subjectId: string; conce
                   <Link className="btn-secondary w-full" href={`/subjects/${subjectId}/diagnostic`}>
                     Find where to start (Adaptive check)
                   </Link>
-                  <div className="rounded-detail border-2 border-ink bg-soft p-3 space-y-2">
-                    <p className="text-meta font-bold">Agentic Tutor Studio</p>
-                    <p className="text-meta text-ink-muted">
-                      Turn this subject&apos;s documents and mastery profile into a course-fingerprinted revision pack or progressive tutorial.
-                    </p>
-                    <div className="grid gap-2">
-                      <button type="button" className="btn-primary !min-h-[38px] text-meta" disabled={busy} onClick={() => launchTutorTrack("revision")}>
-                        Valley 1 · Exam Revision Pack
-                      </button>
-                      <button type="button" className="btn-secondary !min-h-[38px] text-meta" disabled={busy} onClick={() => launchTutorTrack("skills")}>
-                        Valley 2 · Skill Tutorial
-                      </button>
-                    </div>
-                  </div>
+                  <Link className="btn-secondary w-full" href={`/subjects/${subjectId}/summary`}>
+                    Course summary for my level
+                  </Link>
                 </div>
               </div>
             ) : (

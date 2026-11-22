@@ -40,7 +40,7 @@ class Graph:
         return self
 
     def chain(self, *names: str) -> Graph:
-        for a, b in zip(names, names[1:]):
+        for a, b in zip(names, names[1:], strict=False):
             self.edge(a, b)
         return self.edge(names[-1], END)
 

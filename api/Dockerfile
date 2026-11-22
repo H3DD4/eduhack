@@ -3,6 +3,7 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 COPY api/pyproject.toml ./api/
 COPY api/thinkfirst ./api/thinkfirst
+COPY api/tutor ./api/tutor
 RUN pip install --no-cache-dir ./api
 COPY api/alembic ./api/alembic
 COPY api/alembic.ini ./api/

@@ -5,6 +5,7 @@ Revises: 0007_merge_heads
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 from tutor.store.base import COLLECTIONS
 from tutor.store.sqlalchemy_store import SCHEMA, metadata

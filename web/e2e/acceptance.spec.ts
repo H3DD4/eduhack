@@ -25,7 +25,7 @@ test("transfer: hint request locked; cancel conversion keeps work; confirm conve
   await expect(page.getByLabel(/Your answer \(write both forms\)/)).toHaveValue("3(x + 4)");
   await page.getByRole("button", { name: "Get help" }).click();
   await page.getByRole("button", { name: "I don't know where to start" }).click();
-  await expect(page.getByText(/Step 1/)).toBeVisible();
+  await expect(page.getByText("Step 1: Clarify the task")).toBeVisible(); // the avatar also reads it aloud (live region)
 });
 
 test("microphone denied: cause-specific copy and text path remains usable", async ({ page }) => {
@@ -85,7 +85,7 @@ test("save and pause from F01 returns to Today with Resume; resume restores the 
   await page.getByRole("button", { name: "Focus" }).click();
   await page.getByRole("button", { name: "Save and pause" }).click();
   await expect(page).toHaveURL(/\/today/);
-  await page.getByRole("link", { name: "▶ Resume", exact: true }).click(); // hero CTA (course card also offers Resume)
+  await page.getByRole("link", { name: /Resume session/ }).click(); // Today hero CTA
   await page.getByRole("button", { name: "Resume" }).click();
   await expect(page.getByLabel("Your answer")).toHaveValue("2x + 6");
 });
@@ -111,13 +111,16 @@ test("keyboard-only sign-in with skip link and visible focus; 320px reflow witho
   await expect(page.getByRole("navigation", { name: "Main" }).last()).toBeVisible(); // mobile bottom bar
 });
 
-test("start wizard 'test my level': placement test -> level report with metrics -> my path -> level-adapted summary", async ({ page }) => {
+test("start wizard 'test my level': test first -> roadmap built on the level -> my path -> summary; back works", async ({ page }) => {
   await signUpFresh(page);
   await page.goto("/subjects/new");
   await expect(page.locator("[data-screen=C01]")).toBeVisible();
   await page.getByRole("button", { name: "I want to learn something new" }).click();
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByLabel("Topic", { exact: true }).fill("Algebra");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Back to the previous question" }).click(); // wizard back keeps the answers
+  await expect(page.getByLabel("Topic", { exact: true })).toHaveValue("Algebra");
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Yes — use my course" }).click();
   await page.locator("#files").setInputFiles(FIXTURE);
@@ -129,20 +132,34 @@ test("start wizard 'test my level': placement test -> level report with metrics 
   await page.getByRole("button", { name: "Build my learning path" }).click();
   await page.getByRole("button", { name: "Confirm scope" }).click();
 
-  await expect(page.locator("[data-screen=J01]")).toBeVisible();
-  await expect(page.locator("[data-step=level]")).toHaveAttribute("data-state", "current");
-  await expect(page.locator("[data-step=summary]")).toHaveAttribute("data-state", "todo");
-  await page.getByRole("button", { name: "Take the level test" }).first().click();
+  // the level test comes right after the roadmap is confirmed
+  await expect(page).toHaveURL(/\/diagnostic$/);
+  // the roadmap stays locked until the test is done; Back returns to the test
+  await page.getByRole("link", { name: "Roadmap", exact: true }).click();
+  await expect(page.locator("[data-screen=W01-locked]")).toBeVisible();
+  await page.getByRole("button", { name: "Back to the previous page" }).click();
+  await expect(page).toHaveURL(/\/diagnostic$/);
+
   await page.getByRole("button", { name: /Start the level test/ }).click();
-  for (let i = 0; i < 14; i++) {
-    const idk = page.getByRole("button", { name: "I don't know yet" });
-    if (!(await idk.isVisible().catch(() => false))) break;
-    await idk.click();
-    await page.waitForLoadState("networkidle");
+  const question = page.locator("[data-phase=diagnostic-question]");
+  const result = page.locator("[data-phase=diagnostic-result]");
+  await expect(question.or(result).first()).toBeVisible();
+  for (let i = 0; i < 14 && !(await result.isVisible()); i++) {
+    await Promise.all([page.waitForResponse((r) => r.url().includes("/diagnostic/answer")),
+      page.getByRole("button", { name: "I don't know yet" }).click()]);
+    await expect(question.or(result).first()).toBeVisible();
   }
   await expect(page.getByTestId("level-label")).toHaveText("Beginner");
   await expect(page.getByText(/Level score/)).toBeVisible();
-  await page.getByRole("button", { name: "Continue: my summary" }).click();
+
+  // the roadmap now shows, built on the measured level
+  await page.getByRole("button", { name: "See my roadmap (built on your level)" }).click();
+  await expect(page.locator("[data-screen=W01]")).toBeVisible();
+  await expect(page.getByTestId("roadmap-level")).toContainText("Beginner");
+
+  await page.getByRole("link", { name: "My path", exact: true }).click();
   await expect(page.locator("[data-step=level]")).toHaveAttribute("data-state", "done");
   await expect(page.locator("[data-step=summary]")).toHaveAttribute("data-state", "done");
+  await page.getByRole("button", { name: "Read summary" }).click();
+  await expect(page.locator("[data-screen=R01]")).toBeVisible();
 });

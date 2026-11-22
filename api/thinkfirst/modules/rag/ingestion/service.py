@@ -26,6 +26,7 @@ from thinkfirst.platform.workspaces import service as workspaces
 
 ROLES = {"course", "notes", "past_exam"}
 ACTIVE_STATUSES = {"queued", "extracting", "extracted", "awaiting_confirmation", "ready"}
+OUTLINE_LABEL = "Extracted from your course headings (check each level)"
 HEURISTIC_LABEL = "Heuristic extraction from your document's numbered headings (no AI used). Check every item."
 AI_LABEL_TMPL = "AI-proposed scope ({provider}). Check every item; uncertain items are marked."
 GENERATED_LABEL = "AI-generated starter scope (Demo data). Not extracted from your course."
@@ -147,14 +148,23 @@ def propose_scope(db: Session, owner_id: str, subject_id: str) -> ConceptGraphRe
         items.extend((s, it) for it in its)
     basis, label = "extracted-heuristic", HEURISTIC_LABEL
     if not concepts:
+        # No "1.2 Title" numbering: the course's own headings (Chapitre / Définition / II. / 2.1 ...) give a roadmap
+        # that follows the course exactly; with an AI service, the AI proposal is used and the outline is its fallback.
+        outline = []
+        for s in usable:
+            pages_s = db.scalars(select(SourcePage).where(SourcePage.revision_id == s.current_revision_id)
+                                 .order_by(SourcePage.page_no)).all()
+            for c in extract.outline_scope([p.text for p in pages_s]):
+                citations_src[c.key] = (s, c)
+                outline.append(c)
+            if outline:
+                break
         provider = llm.active_provider()
-        if provider == "demo":
-            for s in usable:
-                s.status, s.error_code = "needs_attention", "NO_STRUCTURE_FOUND"
-            subject.status = "needs_attention"
-            return None
-        concepts = _ai_scope(db, owner_id, usable, citations_src)
-        basis, label = "extracted-ai", AI_LABEL_TMPL.format(provider=provider)
+        if provider != "demo":
+            concepts = _ai_scope(db, owner_id, usable, citations_src)
+            basis, label = "extracted-ai", AI_LABEL_TMPL.format(provider=provider)
+        if not concepts and outline:
+            concepts, basis, label = outline, "extracted-outline", OUTLINE_LABEL
         if not concepts:
             for s in usable:
                 s.status, s.error_code = "needs_attention", "NO_STRUCTURE_FOUND"

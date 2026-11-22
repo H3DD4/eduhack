@@ -47,7 +47,7 @@ class Hit:
 
 
 def _dot(a: list[float], b: list[float]) -> float:
-    return sum(x * y for x, y in zip(a, b))
+    return sum(x * y for x, y in zip(a, b, strict=False))
 
 
 class HybridIndex:
@@ -89,7 +89,7 @@ class HybridIndex:
         pool = sorted(fused, key=lambda i: -fused[i])[: max(k * 4, 20)]
         if self.reranker is not None and pool:
             rr = self.reranker.score(query, [self.chunks[i]["text"] for i in pool])
-            for i, s in zip(pool, rr):
+            for i, s in zip(pool, rr, strict=False):
                 fused[i] = fused[i] * 0.3 + s * 0.7
             pool.sort(key=lambda i: -fused[i])
         # MMR: relevance vs redundancy with already picked chunks

@@ -21,8 +21,9 @@ DEMO_PASSWORD = "demo-password"
 
 
 def ensure_schema() -> None:
-    import thinkfirst.models  # noqa: F401
     from sqlalchemy import text
+
+    import thinkfirst.models  # noqa: F401
     from tutor.store.sqlalchemy_store import metadata as tutor_tracks_metadata
 
     engine = get_engine()

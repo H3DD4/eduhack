@@ -314,10 +314,23 @@ def roadmap(subject_id: str, user: User = Depends(current_user), db: Session = D
 
     sug = adaptation.suggest_concept(db, user.id, subject_id)
     suggested = {"id": sug["concept_id"], "reason": sug["reason"], "kind": sug["kind"]} if sug else None
+    # Start wizard "test my level": the roadmap is shown AFTER the test and is marked with its result.
+    from thinkfirst.modules.diagnostic import placement
     from thinkfirst.modules.tutor import service as tutor
 
+    rep = placement.report(db, user.id, subject_id) if subject.status == "ready" else {"available": False}
+    tested = {c["concept_id"]: c["status"] for c in rep.get("concepts") or []} if rep.get("basis") == "placement_test" else {}
+    for u in units.values():
+        for entry in u["concepts"] + u["foundations"]:
+            entry["placement_status"] = tested.get(entry["id"])
+    gate = subject.prior_knowledge == "some" and not rep.get("available")
+    level = ({"level": rep["level"], "label": rep["level_label"], "basis": rep["basis"], "score": rep.get("score"),
+              "known": sum(1 for v in tested.values() if v == "known"), "to_learn": sum(1 for v in tested.values() if v == "to_learn")}
+             if rep.get("available") else None)
     all_concepts = [c for u in units.values() for c in u["concepts"]]
     return {"subject": workspaces.subject_public(subject), "units": [units[k] for k in sorted(units)],
+            "placement": {"required": gate, "state": placement.status(db, user.id, subject_id)["state"] if gate else None},
+            "level": level,
             "suggested_concept_id": suggested["id"] if suggested else None,
             "suggestion": suggested,
             "resume": tutor.unfinished_for_subject(db, user.id, subject_id),

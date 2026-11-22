@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useState } from "react";
 import { useApi } from "@/lib/hooks";
 import { AppShell } from "./AppShell";
@@ -20,6 +20,7 @@ const TABS = [
 export function SubjectShell({ subjectId, children, action, crumb }:
   { subjectId: string; children: ReactNode; action?: ReactNode; crumb?: string }) {
   const path = usePathname();
+  const router = useRouter();
   const { data, error } = useApi<{ subject: any }>(`/subjects/${subjectId}`);
   const [more, setMore] = useState(false);
   const base = `/subjects/${subjectId}`;
@@ -30,7 +31,11 @@ export function SubjectShell({ subjectId, children, action, crumb }:
       {error?.status === 404 ? <NotAvailable backHref="/subjects" /> : (
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-page-compact lg:text-page">{name}</h1>
+            <div className="flex min-w-0 items-center gap-3">
+              <button type="button" className="btn-secondary !min-h-[42px] !rounded-pill !px-4" aria-label="Back to the previous page"
+                onClick={() => (window.history.length > 1 ? router.back() : router.push(`${base}/start`))}>← Back</button>
+              <h1 className="min-w-0 text-page-compact lg:text-page">{name}</h1>
+            </div>
             {action}
           </div>
           <nav aria-label="Subject sections" className="mb-6 border-b-2 border-border pb-3">

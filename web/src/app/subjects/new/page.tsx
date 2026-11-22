@@ -25,9 +25,24 @@ function Choice({ pressed, onClick, icon, title, text, name }:
   );
 }
 
+// Must render INSIDE <AppShell>: useMe() reads the shell's context (outside it, `me` is always undefined).
+function DemoCourseButton({ onFile }: { onFile: (f: File) => void }) {
+  const { me } = useMe();
+  if (!me?.is_demo) return null;
+  return (
+    <div className="card border-discovery">
+      <DemoLabel />
+      <p className="mt-2 text-meta">A permission-cleared demo course (MATH 101 — Algebra Foundations) is available for the demo account.</p>
+      <button type="button" className="btn-secondary mt-3" onClick={async () => {
+        const blob = await api<Blob>("/demo/course-file");
+        onFile(new File([blob], "MATH101-algebra-foundations-DEMO.pdf", { type: "application/pdf" }));
+      }}>Use the demo course file</button>
+    </div>
+  );
+}
+
 export default function StartWizard() {
   const router = useRouter();
-  const { me } = useMe();
   const { data: limits } = useApi<any>("/limits");
   const { data: sugg } = useApi<any>("/topics/suggestions");
   const [step, setStep] = useState(0);
@@ -167,16 +182,7 @@ export default function StartWizard() {
                       </ul>
                     )}
                   </div>
-                  {me?.is_demo && (
-                    <div className="card border-discovery">
-                      <DemoLabel />
-                      <p className="mt-2 text-meta">A permission-cleared demo course (MATH 101 — Algebra Foundations) is available for the demo account.</p>
-                      <button type="button" className="btn-secondary mt-3" onClick={async () => {
-                        const blob = await api<Blob>("/demo/course-file");
-                        addFiles([new File([blob], "MATH101-algebra-foundations-DEMO.pdf", { type: "application/pdf" })]);
-                      }}>Use the demo course file</button>
-                    </div>
-                  )}
+                  <DemoCourseButton onFile={(f) => addFiles([f])} />
                   <div>
                     <label htmlFor="paste" className="label">Or paste text (optional)</label>
                     <textarea id="paste" className="field min-h-[120px]" value={paste} onChange={(e) => setPaste(e.target.value)} />

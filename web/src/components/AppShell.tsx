@@ -30,7 +30,6 @@ const GLOBAL = [
   { href: "/subjects", label: "Subjects", icon: "subjects" as const },
   { href: "/planner", label: "Planner", icon: "planner" as const },
   { href: "/progress", label: "Progress", icon: "progress" as const },
-  { href: "/tutor", label: "Tutor", icon: "subjects" as const },
   { href: "/teachers", label: "3D Teachers", icon: "teachers" as const },
 ];
 

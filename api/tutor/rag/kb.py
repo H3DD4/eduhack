@@ -20,7 +20,7 @@ class KnowledgeBase:
         for i in range(0, len(chunks), batch):
             part = chunks[i: i + batch]
             vecs = self.embedder.embed([c["text"] for c in part])
-            for c, v in zip(part, vecs):
+            for c, v in zip(part, vecs, strict=False):
                 c["embedding"] = v
         self.store.put_many("chunks", chunks)
         for tid in {c["track_id"] for c in chunks}:
