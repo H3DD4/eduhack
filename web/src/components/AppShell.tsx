@@ -5,7 +5,7 @@ import { createContext, ReactNode, useContext, useEffect, useRef, useState } fro
 import { api, ApiError } from "@/lib/api";
 import { AccessibilityProfile, AccessibilityResponse, isAccessibilityActive } from "@/lib/accessibility/profile";
 import { READING_THEMES } from "@/lib/accessibility/themes";
-import { AvatarSpeakerProvider } from "./avatar/AvatarSpeakerContext";
+import { AvatarSpeakerProvider, VoiceGuideButton } from "./avatar/AvatarSpeakerContext";
 import { CommandPalette } from "./CommandPalette";
 import { Logo } from "./Logo";
 
@@ -186,6 +186,7 @@ export function AppShell({ children, crumbs = [], focused = false, requireSetup 
     <Ctx.Provider value={{ me, caps, refreshMe, accessibilityProfile, accessibilityError, refreshAccessibility }}>
       <AvatarSpeakerProvider profile={accessibilityProfile}>
       <a href="#main" className="skip-link btn-secondary">Skip to content</a>
+      <VoiceGuideButton />
       {!focused && (
         <header className={`sticky top-0 z-30 px-3 pt-3 transition-[padding] duration-200 md:px-6 ${scrolled ? "md:pt-2" : "md:pt-5"}`}>
           <nav aria-label="Main" className="topnav mx-auto flex max-w-overview items-center justify-between gap-3 py-2 pl-4 pr-2">

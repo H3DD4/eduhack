@@ -2,7 +2,7 @@
 // "Learn anything" launcher (UC05): no documents required. Creates an AI-generated roadmap grounded in openly
 // licensed sources; the student confirms it with one click on C02.
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 
@@ -12,6 +12,11 @@ export function TopicLauncher({ dark = false, autoFocus = false }: { dark?: bool
   const [topic, setTopic] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const topicParam = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("topic");
+
+  useEffect(() => {
+    if (topicParam) setTopic(topicParam);
+  }, [topicParam]);
 
   const go = async (t: string) => {
     if (!t.trim()) return;
